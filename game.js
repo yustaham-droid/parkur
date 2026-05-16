@@ -1,1219 +1,709 @@
-// ═══════════════════════════════════════════════════════
-//  PARKOUR NEXUS 3D  —  game.js
-//  Roblox-style 3D blocky character + walking animation
-// ═══════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════
+//  PARKOUR 3D — First-Person Three.js Game
+// ═══════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-// ── Save ─────────────────────────────────────────────────
-const SK = 'parkourNexus3D';
-let SD = {bestScore:0,deaths:0,currentLevel:0,levelsCompleted:[],levelStars:[]};
-try{const d=JSON.parse(localStorage.getItem(SK));if(d)SD={...SD,...d};}catch(e){}
-function saveGame(){try{localStorage.setItem(SK,JSON.stringify(SD));}catch(e){}}
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87CEEB);
+scene.fog = new THREE.FogExp2(0x87CEEB, 0.007);
 
-// ── Canvas ────────────────────────────────────────────────
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;}
-resize();
-window.addEventListener('resize',resize);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 500);
+window.addEventListener('resize', () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+});
 
-// ── Audio ─────────────────────────────────────────────────
-let _ac=null;
-const vol=()=>sfxOn?0.18:0;
-let sfxOn=true;
-function ac(){if(!_ac)_ac=new(window.AudioContext||window.webkitAudioContext)();return _ac;}
-function tone(f,t='square',d=.12,v=.15,dt=0){
-  try{
-    const o=ac().createOscillator(),g=ac().createGain();
-    o.connect(g);g.connect(ac().destination);
-    o.type=t;o.frequency.value=f;o.detune.value=dt;
-    g.gain.setValueAtTime(v,ac().currentTime);
-    g.gain.exponentialRampToValueAtTime(.001,ac().currentTime+d);
-    o.start();o.stop(ac().currentTime+d);
-  }catch(e){}
+// ── Lighting (Roblox-style bright) ───────────────
+const ambient = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xfffbe8, 1.2);
+sun.position.set(60, 120, 40);
+sun.castShadow = true;
+sun.shadow.mapSize.width = sun.shadow.mapSize.height = 2048;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 400;
+sun.shadow.camera.left = sun.shadow.camera.bottom = -100;
+sun.shadow.camera.right = sun.shadow.camera.top = 100;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x9999ff, 0.3);
+fill.position.set(-40, 10, -40);
+scene.add(fill);
+
+// ── Input ─────────────────────────────────────────
+const keys = {};
+const jp = {};
+window.addEventListener('keydown', e => { if (!keys[e.code]) jp[e.code] = true; keys[e.code] = true; });
+window.addEventListener('keyup',   e => { keys[e.code] = false; });
+function clearJP() { Object.keys(jp).forEach(k => delete jp[k]); }
+
+// ── Pointer Lock ──────────────────────────────────
+let locked = false, yaw = 0, pitch = 0;
+document.addEventListener('pointerlockchange', () => {
+  locked = document.pointerLockElement === canvas;
+  document.getElementById('blocker').classList.toggle('hidden', locked);
+});
+document.addEventListener('mousemove', e => {
+  if (!locked) return;
+  yaw   -= e.movementX * 0.0022;
+  pitch -= e.movementY * 0.0022;
+  pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, pitch));
+});
+document.getElementById('btnStart').onclick = () => canvas.requestPointerLock();
+canvas.addEventListener('click', () => { if (!locked) canvas.requestPointerLock(); });
+
+// ── Maths ─────────────────────────────────────────
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// ── Audio ─────────────────────────────────────────
+let ac2 = null;
+function getAC() { if (!ac2) ac2 = new (window.AudioContext || window.webkitAudioContext)(); return ac2; }
+function beep(f, t = 'sine', d = .1, v = .15) {
+  try { const o = getAC().createOscillator(), g = getAC().createGain();
+    o.connect(g); g.connect(getAC().destination);
+    o.frequency.value = f; o.type = t;
+    g.gain.setValueAtTime(v, getAC().currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, getAC().currentTime + d);
+    o.start(); o.stop(getAC().currentTime + d); } catch(e) {}
 }
-const sfxJump=()=>tone(340,'sine',.15,.22);
-const sfxLand=()=>tone(110,'triangle',.1,.28);
-const sfxDash=()=>tone(600,'sawtooth',.1,.22,-200);
-const sfxWall=()=>tone(430,'sine',.12,.2,100);
-const sfxDie=()=>{tone(80,'sawtooth',.4,.3);setTimeout(()=>tone(55,'sawtooth',.3,.28),160);};
-const sfxCoin=()=>{tone(900,'sine',.14,.18);setTimeout(()=>tone(1100,'sine',.12,.14),80);};
-const sfxCP=()=>{[440,660,880].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.18,.18),i*110));};
-const sfxWin=()=>{[440,550,660,880,1100].forEach((f,i)=>setTimeout(()=>tone(f,'sine',.28,.2),i*100));};
+const sfxJump   = () => beep(340, 'sine', .14, .2);
+const sfxLand   = () => beep(120, 'triangle', .1, .25);
+const sfxCoin   = () => { beep(880, 'sine', .12, .18); setTimeout(() => beep(1100, 'sine', .1, .14), 70); };
+const sfxCP     = () => { [440, 660, 880].forEach((f, i) => setTimeout(() => beep(f, 'sine', .15, .15), i * 100)); };
+const sfxDie    = () => { beep(80, 'sawtooth', .4, .28); setTimeout(() => beep(60, 'sawtooth', .3, .22), 150); };
+const sfxWin    = () => { [440, 550, 660, 880, 1100].forEach((f, i) => setTimeout(() => beep(f, 'sine', .25, .2), i * 110)); };
 
-// ── Input ─────────────────────────────────────────────────
-const keys={}, jp={}, jr={};
-window.addEventListener('keydown',e=>{if(!keys[e.code])jp[e.code]=true;keys[e.code]=true;
-  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();});
-window.addEventListener('keyup',e=>{jr[e.code]=true;keys[e.code]=false;});
-function clearJP(){Object.keys(jp).forEach(k=>delete jp[k]);Object.keys(jr).forEach(k=>delete jr[k]);}
+// ── Game State ────────────────────────────────────
+let currentLevel = 0, score = 0, deaths = 0;
+let gameStartTime = Date.now();
+const SAVE_KEY = 'pk3d_save';
+let saveData = { best: 0, deaths: 0, unlocked: 0 };
+try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) saveData = { ...saveData, ...s }; } catch(e) {}
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(saveData)); } catch(e) {} }
 
-// ── Math ──────────────────────────────────────────────────
-const lerp=(a,b,t)=>a+(b-a)*t;
-const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-const rand=(a,b)=>a+Math.random()*(b-a);
+// ── Notifications ─────────────────────────────────
+function notif(txt) {
+  const a = document.getElementById('notifArea');
+  const el = document.createElement('div'); el.className = 'notif'; el.textContent = txt;
+  a.appendChild(el); setTimeout(() => el.remove(), 2300);
+}
 
-// ── Camera ────────────────────────────────────────────────
-const cam={
-  x:0,y:0,tx:0,ty:0,
-  sx:0,sy:0,smag:0,sdur:0,
-  update(p){
-    this.tx=p.x+p.w/2-canvas.width/2;
-    this.ty=p.y+p.h/2-canvas.height/2;
-    this.x=lerp(this.x,this.tx,.1);
-    this.y=lerp(this.y,this.ty,.08);
-    if(this.sdur>0){this.smag*=.83;this.sx=(Math.random()-.5)*2*this.smag;this.sy=(Math.random()-.5)*2*this.smag;this.sdur--;}
-    else{this.sx=0;this.sy=0;}
-  },
-  shake(m=8,d=12){this.smag=m;this.sdur=d;},
-  on(){ctx.save();ctx.translate(-this.x+this.sx,-this.y+this.sy);},
-  off(){ctx.restore();}
-};
+// ══════════════════════════════════════════════════
+//  WORLD BUILDER
+// ══════════════════════════════════════════════════
+let platforms = [], coins = [], checkpoints = [], goal = null;
+let movingPlatforms = [];
+const objects = []; // all collidable AABBs
 
-// ── Particles ─────────────────────────────────────────────
-const PFX=[];
-let pfxOn=true;
-function spawnPFX(x,y,o={}){
-  if(!pfxOn)return;
-  PFX.push({x,y,vx:o.vx??rand(-3,3),vy:o.vy??rand(-6,-1),
-    life:o.life??rand(20,40),ml:o.life??rand(20,40),
-    size:o.size??rand(2,5),color:o.color??'#00f5ff',
-    grav:o.grav??.2,spin:o.spin??rand(-.12,.12),angle:0});
+// Roblox color palette
+const COLORS = [
+  0xff3333, 0x33cc33, 0x3366ff, 0xff8800, 0xff33cc,
+  0x00ccff, 0xffcc00, 0x99ff00, 0xff6699, 0xaa44ff,
+  0x00ffcc, 0xff4400, 0x4488ff, 0xffaa33, 0x33ff99
+];
+let colorIdx = 0;
+function nextColor() { return COLORS[colorIdx++ % COLORS.length]; }
+
+function makeMat(color, emissive = 0x000000) {
+  return new THREE.MeshPhongMaterial({ color, emissive, shininess: 40, specular: 0x111111 });
 }
-function burst(x,y,n=12,o={}){
-  for(let i=0;i<n;i++){const a=Math.PI*2/n*i+rand(-.3,.3),s=rand(o.s0??2,o.s1??7);
-    spawnPFX(x,y,{...o,vx:Math.cos(a)*s,vy:Math.sin(a)*s});}
-}
-function dust(x,y,d=1){
-  for(let i=0;i<8;i++)spawnPFX(x,y,{vx:rand(-2.5,0)*d,vy:rand(-3.5,-.5),
-    size:rand(3,8),color:`hsl(${rand(15,35)},55%,55%)`,life:rand(14,28),grav:.14});
-}
-function trail(x,y,c='#00f5ff'){
-  spawnPFX(x,y,{vx:rand(-.8,.8),vy:rand(-.8,.8),size:rand(2,4),color:c,life:rand(6,14),grav:0});
-}
-function updatePFX(){
-  for(let i=PFX.length-1;i>=0;i--){
-    const p=PFX[i];p.x+=p.vx;p.y+=p.vy;p.vy+=p.grav;p.vx*=.97;p.life--;p.angle+=p.spin;
-    if(p.life<=0)PFX.splice(i,1);
+
+function addPlatform(x, y, z, w, h, d, color, opts = {}) {
+  color = color ?? nextColor();
+  const geo = new THREE.BoxGeometry(w, h, d);
+  const mat = makeMat(color, opts.emissive || 0);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = mesh.receiveShadow = true;
+  scene.add(mesh);
+
+  // Edge lines (Roblox block look)
+  const edges = new THREE.EdgesGeometry(geo);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25 });
+  mesh.add(new THREE.LineSegments(edges, lineMat));
+
+  const obj = { mesh, x, y, z, w, h, d, type: opts.type || 'solid', moving: opts.moving || false, vx: 0, vz: 0 };
+
+  if (opts.moving) {
+    const startPos = new THREE.Vector3(x, y, z);
+    const endPos   = new THREE.Vector3(opts.ex ?? x, opts.ey ?? y, opts.ez ?? z);
+    movingPlatforms.push({ obj, startPos, endPos, t: 0, dir: 1, speed: opts.mspeed || 1.2 });
   }
+
+  platforms.push(obj);
+  objects.push(obj);
+  return obj;
 }
-function drawPFX(){
-  PFX.forEach(p=>{
-    const t=p.life/p.ml;
-    ctx.save();ctx.globalAlpha=t*.85;ctx.fillStyle=p.color;
-    ctx.shadowBlur=8;ctx.shadowColor=p.color;
-    ctx.translate(p.x,p.y);ctx.rotate(p.angle);
-    ctx.fillRect(-p.size/2,-p.size/2,p.size*t,p.size*t);
-    ctx.restore();
+
+function addCoin(x, y, z, value = 50) {
+  const geo = new THREE.TorusGeometry(0.35, 0.1, 8, 18);
+  const mat = makeMat(value >= 100 ? 0xff44ff : 0xffdd00, value >= 100 ? 0x440044 : 0x443300);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  scene.add(mesh);
+  coins.push({ mesh, x, y, z, r: 0.7, value, collected: false });
+}
+
+function addCheckpoint(x, y, z) {
+  const geo = new THREE.CylinderGeometry(0.6, 0.6, 3.5, 10);
+  const mat = makeMat(0x00ffff, 0x004444);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y + 1.75, z);
+  scene.add(mesh);
+  // Glow ring
+  const rGeo = new THREE.TorusGeometry(1.2, 0.12, 8, 24);
+  const rMat = makeMat(0x00ffff, 0x004488);
+  const ring = new THREE.Mesh(rGeo, rMat);
+  ring.rotation.x = Math.PI / 2;
+  mesh.add(ring);
+  checkpoints.push({ mesh, x, y, z, r: 1.5, activated: false });
+}
+
+function addGoal(x, y, z) {
+  const geo = new THREE.TorusGeometry(2.2, 0.25, 10, 32);
+  const mat = makeMat(0x00ff44, 0x004411);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y + 2.2, z);
+  scene.add(mesh);
+  // Spinning inner ring
+  const geo2 = new THREE.TorusGeometry(1.4, 0.15, 8, 24);
+  const mat2 = makeMat(0xffff00, 0x333300);
+  const ring2 = new THREE.Mesh(geo2, mat2);
+  mesh.add(ring2);
+  goal = { mesh, x, y, z, r: 2.5 };
+}
+
+function clearWorld() {
+  [...platforms, ...coins.map(c => c.mesh), ...checkpoints.map(c => c.mesh)].forEach(obj => {
+    if (obj.mesh) scene.remove(obj.mesh); else scene.remove(obj);
   });
+  // Remove all scene objects except lights
+  while (scene.children.length > 0) {
+    const obj = scene.children[0];
+    if (obj.isLight) { scene.children.splice(0, 1); continue; }
+    scene.remove(obj);
+  }
+  scene.add(ambient, sun, fill);
+  platforms = []; coins = []; checkpoints = []; goal = null;
+  movingPlatforms = []; objects.length = 0; colorIdx = 0;
 }
 
-// ══════════════════════════════════════════════════════════
-//  3D BOX DRAWING  (pseudo-3D, side-scroll perspective)
-// ══════════════════════════════════════════════════════════
-const D3 = {
-  DEPTH: 10,      // depth in pixels
-  AX:  0.82,      // cos(35°)
-  AY: -0.42,      // -sin(25°)  — top face lean
+// ══════════════════════════════════════════════════
+//  PLAYER PHYSICS (First-Person)
+// ══════════════════════════════════════════════════
+const PW = 0.4, PH = 1.85, PD = 0.4;  // player half-extents
+const GRAVITY = -22;
+const JUMP_V  = 9.5;
+const WALK_SP = 5.5;
+const SPRINT_SP = 9.5;
+const MAX_FALL = -28;
 
-  // Draw a 3D box given front-face rect
-  box(ctx, x, y, w, h, cFront, cTop, cSide, opts={}) {
-    const dep = opts.dep ?? this.DEPTH;
-    const ax  = opts.ax  ?? this.AX;
-    const ay  = opts.ay  ?? this.AY;
-    const dx  = ax * dep;
-    const dy  = ay * dep;
-
-    // Side face (right)
-    ctx.beginPath();
-    ctx.moveTo(x+w,    y);
-    ctx.lineTo(x+w+dx, y+dy);
-    ctx.lineTo(x+w+dx, y+h+dy);
-    ctx.lineTo(x+w,    y+h);
-    ctx.closePath();
-    ctx.fillStyle = cSide;
-    ctx.fill();
-
-    // Top face
-    ctx.beginPath();
-    ctx.moveTo(x,      y);
-    ctx.lineTo(x+dx,   y+dy);
-    ctx.lineTo(x+w+dx, y+dy);
-    ctx.lineTo(x+w,    y);
-    ctx.closePath();
-    ctx.fillStyle = cTop;
-    ctx.fill();
-
-    // Front face
-    ctx.fillStyle = cFront;
-    ctx.fillRect(x, y, w, h);
-
-    // Edge highlight
-    if(opts.edge!==false){
-      ctx.strokeStyle = opts.edgeColor ?? 'rgba(255,255,255,0.18)';
-      ctx.lineWidth = opts.edgeW ?? 1;
-      ctx.strokeRect(x, y, w, h);
-    }
-  },
-
-  // Shade helper: darken a hex color
-  shade(hex, factor) {
-    let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
-    r=Math.floor(r*factor);g=Math.floor(g*factor);b=Math.floor(b*factor);
-    return `rgb(${r},${g},${b})`;
-  },
-
-  // Draw a rounded box (for character parts)
-  rbox(ctx, x, y, w, h, cFront, cTop, cSide, opts={}) {
-    const dep = opts.dep ?? 8;
-    const dx  = this.AX * dep, dy = this.AY * dep;
-
-    // Side
-    ctx.beginPath();
-    ctx.moveTo(x+w, y+4); ctx.lineTo(x+w+dx, y+4+dy);
-    ctx.lineTo(x+w+dx, y+h-4+dy); ctx.lineTo(x+w, y+h-4);
-    ctx.closePath();
-    ctx.fillStyle = cSide; ctx.fill();
-
-    // Top
-    ctx.beginPath();
-    ctx.moveTo(x+4, y); ctx.lineTo(x+4+dx, y+dy);
-    ctx.lineTo(x+w-4+dx, y+dy); ctx.lineTo(x+w-4, y);
-    ctx.closePath();
-    ctx.fillStyle = cTop; ctx.fill();
-
-    // Front (rounded)
-    ctx.beginPath();
-    const r = opts.r ?? 3;
-    ctx.roundRect ? ctx.roundRect(x,y,w,h,r) : ctx.rect(x,y,w,h);
-    ctx.fillStyle = cFront; ctx.fill();
-
-    // outline
-    if(opts.outline!==false){
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.roundRect ? ctx.roundRect(x,y,w,h,r) : ctx.rect(x,y,w,h);
-      ctx.stroke();
-    }
-  }
+const player = {
+  pos: new THREE.Vector3(0, 4, 0),
+  vel: new THREE.Vector3(0, 0, 0),
+  onGround: false,
+  jumpsLeft: 2,
+  health: 100, maxHp: 100,
+  dead: false, invTimer: 0,
+  cpPos: new THREE.Vector3(0, 4, 0),
+  score: 0, deaths: 0,
+  startTime: Date.now(),
+  standingOn: null,   // reference to platform being stood on
+  prevPlatPos: null,  // for moving platform carry
 };
 
-// ══════════════════════════════════════════════════════════
-//  ROBLOX-STYLE 3D PLAYER
-// ══════════════════════════════════════════════════════════
-class Player {
-  constructor(x,y){
-    this.x=x;this.y=y;this.w=30;this.h=48;
-    this.vx=0;this.vy=0;
-    this.onGround=false;this.onWall=0;
-    this.jumpsLeft=2;this.dashLeft=1;
-    this.dashing=false;this.dashTimer=0;
-    this.wallSlide=false;this.wjLock=0;
-    this.crouching=false;
-    this.health=100;this.maxHp=100;
-    this.dead=false;this.inv=0;
-    this.facing=1;
-    this.score=0;this.combo=0;this.comboT=0;
-    this.cpX=x;this.cpY=y;
-    this.deaths=0;this.dist=0;
-    this.dashCD=0;this.dashCDmax=60;
-    this.coyote=0;this.jbuf=0;
-    this.startTime=Date.now();
+// Walking camera bob
+let bobT = 0, bobY = 0, bobX = 0;
+let lastOnGround = false;
+let landTimer = 0; // camera land squish
 
-    // ── Walk animation state ─────────────────────────────
-    this.walkCycle=0;      // 0..2π, drives all limb swing
-    this.walkSpeed=0;      // how fast cycle advances (= |vx|)
-    this.bobY=0;           // vertical bob offset
-    this.landSquish=0;     // squish on landing (0..1)
-    this.headBob=0;        // head tilt
-    this.armSwing=0;       // arm swing angle
-    this.legSwing=0;       // leg swing angle (mirrored for each leg)
-
-    // character skin colours (Roblox-ish)
-    this.clrSkin   = '#f5c18a';
-    this.clrHoodie = '#1a5fad';
-    this.clrPants  = '#1a1a2e';
-    this.clrShoes  = '#2255cc';
-    this.clrHat    = '#1e1e1e';
-    this.clrAccent = '#ffffff';
-  }
-
-  get cx(){return this.x+this.w/2;}
-  get cy(){return this.y+this.h/2;}
-  get bottom(){return this.y+this.h;}
-  get right(){return this.x+this.w;}
-
-  // ── Physics helpers ───────────────────────────────────
-  _ov(r){return this.x<r.x+r.w&&this.right>r.x&&this.y<r.y+r.h&&this.bottom>r.y;}
-
-  _colX(plats){
-    this.onWall=0;
-    plats.forEach(p=>{if(!p.solid)return;
-      if(this.y<p.y+p.h&&this.bottom>p.y){
-        if(this.x<p.x+p.w&&this.right>p.x){
-          if(this.vx>0&&this.x<p.x){this.x=p.x-this.w;this.vx=0;this.onWall=1;}
-          else if(this.vx<0&&this.right>p.x+p.w){this.x=p.x+p.w;this.vx=0;this.onWall=-1;}
-        }
-      }
-    });
-  }
-
-  _colY(plats){
-    this.onGround=false;
-    plats.forEach(p=>{
-      if(this.x<p.x+p.w&&this.right>p.x){
-        if(p.oneWay){
-          if(this.vy>=0&&this.y<p.y&&this.bottom>p.y&&this.bottom<p.y+p.h+this.vy+6){
-            if(!keys['KeyS']&&!keys['ArrowDown']){this.y=p.y-this.h;this.vy=0;this.onGround=true;}
-          }
-        } else if(p.solid){
-          if(this.y<p.y+p.h&&this.bottom>p.y){
-            if(this.vy>0&&this.y<p.y){this.y=p.y-this.h;this.vy=0;this.onGround=true;}
-            else if(this.vy<0&&this.bottom>p.y+p.h){this.y=p.y+p.h;this.vy=0;}
-          }
-        }
-      }
-    });
-    // ride moving platforms
-    plats.forEach(p=>{
-      if(!p.moving)return;
-      if(this.onGround&&p._ly!==undefined&&Math.abs(this.bottom-p.y)<4){
-        this.x+=p.vx||0;this.y+=p.vy||0;
-      }
-    });
-  }
-
-  setCP(x,y){this.cpX=x;this.cpY=y;sfxCP();showNotif('KONTROL NOKTASI ✓');
-    burst(x,y,12,{color:'#ffd700',s0:2,s1:6});}
-
-  addScore(pts,lbl){
-    this.score+=pts;if(this.score>SD.bestScore)SD.bestScore=this.score;
-    this.combo++;this.comboT=120;showNotif(`+${pts} ${lbl||''}`);
-  }
-
-  respawn(){
-    this.x=this.cpX;this.y=this.cpY-this.h;
-    this.vx=0;this.vy=0;this.health=this.maxHp;
-    this.dead=false;this.inv=60;
-    this.dashing=false;this.dashTimer=0;this.jumpsLeft=2;this.dashLeft=1;
-    this.deaths++;SD.deaths++;
-    cam.shake(14,22);burst(this.cx,this.cy,18,{color:'#ff006e',s0:3,s1:9});
-  }
-
-  update(plats,hazards,coins,cps,lw,lh){
-    if(this.dead)return;
-    if(this.inv>0)this.inv--;
-    if(this.coyote>0)this.coyote--;
-    if(this.jbuf>0)this.jbuf--;
-    if(this.dashCD>0)this.dashCD--;
-    if(this.wjLock>0)this.wjLock--;
-    if(this.comboT>0){this.comboT--;if(this.comboT===0)this.combo=0;}
-    if(this.landSquish>0)this.landSquish=lerp(this.landSquish,0,.18);
-
-    const L=keys['KeyA']||keys['ArrowLeft'];
-    const R=keys['KeyD']||keys['ArrowRight'];
-    const J=jp['Space']||jp['KeyW']||jp['ArrowUp'];
-    const S=keys['KeyS']||keys['ArrowDown'];
-    const SH=keys['ShiftLeft']||keys['ShiftRight'];
-    const DSH=jp['ShiftLeft']||jp['ShiftRight'];
-
-    this.crouching=S&&this.onGround;
-    if(!this.crouching)this.h=48; else{this.y+=this.h-30;this.h=30;}
-
-    const maxSpd=(SH?9:5.5)*(this.crouching?.5:1);
-    const acc=this.onGround?1.3:.5;
-    const fric=this.onGround?.78:.95;
-
-    if(!this.dashing){
-      if(L){this.vx-=acc;this.facing=-1;}
-      if(R){this.vx+=acc;this.facing=1;}
-      if(!L&&!R)this.vx*=fric;
-      this.vx=clamp(this.vx,-maxSpd,maxSpd);
-    }
-
-    // Dash
-    if(DSH&&this.dashLeft>0&&this.dashCD===0&&!this.crouching){
-      const dd=L?-1:R?1:this.facing;
-      this.vx=dd*17;this.vy=-2;this.dashing=true;this.dashTimer=11;
-      this.dashLeft--;this.dashCD=this.dashCDmax;
-      sfxDash();burst(this.cx,this.cy,10,{color:'#00f5ff',s0:2,s1:6});
-    }
-    if(this.dashing){this.dashTimer--;trail(this.cx,this.cy,'#00f5ff');if(this.dashTimer<=0)this.dashing=false;}
-
-    // Gravity
-    if(!this.dashing){
-      if(this.wallSlide){this.vy=Math.min(this.vy+.35,1.8);}
-      else{
-        const gs=(keys['Space']||keys['KeyW']||keys['ArrowUp'])&&this.vy<0?.5:1;
-        this.vy+=.68*gs;
-        if(S&&this.vy>0&&!this.onGround)this.vy+=.55;
-      }
-      this.vy=Math.min(this.vy,22);
-    }
-
-    if(J)this.jbuf=11;
-
-    // Jump logic
-    if(this.jbuf>0){
-      if(this.onWall!==0&&this.wjLock===0&&!this.onGround){
-        this.vx=-this.onWall*9.5;this.vy=-14;this.jumpsLeft=1;this.jbuf=0;this.wjLock=18;
-        sfxWall();burst(this.cx,this.cy,8,{color:'#7fff00',s0:2,s1:5});cam.shake(4,8);
-      } else if((this.onGround||this.coyote>0)&&this.vy>=0){
-        this.vy=-15.5;this.jumpsLeft=1;this.coyote=0;this.jbuf=0;
-        sfxJump();dust(this.cx,this.bottom,-this.facing);cam.shake(2,5);
-      } else if(this.jumpsLeft>0&&!this.onGround&&this.coyote===0){
-        this.vy=-13.5;this.jumpsLeft--;this.jbuf=0;
-        sfxJump();burst(this.cx,this.cy+this.h/2,10,{color:'#00f5ff',s0:1,s1:4,vy:-2});cam.shake(2,4);
-      }
-    }
-
-    this.x+=this.vx;this._colX(plats);
-    this.y+=this.vy;
-    const wasG=this.onGround;this._colY(plats);
-
-    if(!wasG&&this.onGround){
-      sfxLand();this.landSquish=1;
-      if(Math.abs(this.vy)>9){cam.shake(6,10);dust(this.cx,this.bottom,this.facing);}
-      this.jumpsLeft=2;this.dashLeft=1;
-    }
-    if(wasG&&!this.onGround&&this.vy>=0)this.coyote=8;
-    this.wallSlide=!this.onGround&&this.vy>0&&this.onWall!==0;
-
-    // Hazards
-    if(this.inv===0)hazards.forEach(h=>{if(this._ov(h))this.takeDmg(h.damage||25);});
-
-    // Pit
-    if(this.y>lh+300)this.die();
-    if(this.x<-60){this.x=-60;this.vx=0;}
-
-    // Coins
-    for(let i=coins.length-1;i>=0;i--){
-      const c=coins[i];
-      if(!c.collected&&this._ov(c)){c.collected=true;sfxCoin();this.addScore(c.value||50,'KOİN');burst(c.x+c.w/2,c.y+c.h/2,10,{color:'#ffd700',s0:2,s1:5});}
-    }
-
-    // Checkpoints
-    cps.forEach(cp=>{if(!cp.activated&&this._ov(cp)){cp.activated=true;this.setCP(cp.x,cp.y);}});
-
-    this.dist=Math.max(this.dist,Math.floor(this.x/60));
-
-    // ── Walk animation update ──────────────────────────────
-    this._updateAnim();
-  }
-
-  takeDmg(amt){
-    if(this.inv>0)return;
-    this.health-=amt;this.inv=60;
-    cam.shake(10,15);burst(this.cx,this.cy,12,{color:'#ff006e',s0:2,s1:6});
-    if(this.health<=0)this.die();
-  }
-
-  die(){if(this.dead)return;this.dead=true;sfxDie();cam.shake(20,30);burst(this.cx,this.cy,24,{color:'#ff006e',s0:4,s1:12,glow:true});}
-
-  _updateAnim(){
-    // walkCycle advances proportional to horizontal speed
-    const speed=Math.abs(this.vx);
-    this.walkSpeed=speed;
-
-    if(this.onGround&&speed>0.3){
-      this.walkCycle+=speed*0.065;           // how fast cycle goes
-    } else if(!this.onGround){
-      this.walkCycle+=0.04;                  // idle cycle in air
-    } else {
-      // idle: gently sway
-      this.walkCycle+=0.02;
-    }
-
-    // limb angles driven by sine wave
-    const swing = this.onGround ? Math.sin(this.walkCycle) : 0;
-    const airSwing = !this.onGround ? Math.sin(this.walkCycle)*0.4 : 0;
-
-    this.legSwing  = this.onGround ? swing : airSwing;
-    this.armSwing  = this.onGround ? -swing * 0.7 : airSwing;
-
-    // vertical body bob while running
-    this.bobY = this.onGround && speed>0.3 ? Math.abs(Math.sin(this.walkCycle))*3 : 0;
-
-    // head tilt based on direction change
-    this.headBob = this.onGround ? Math.sin(this.walkCycle*0.5)*1.5 : 0;
-  }
-
-  // ── DRAW ROBLOX 3D CHARACTER ──────────────────────────────
-  draw(ctx){
-    if(this.dead)return;
-    ctx.save();
-
-    // flash when invincible
-    if(this.inv>0&&Math.floor(this.inv/4)%2===0){ctx.globalAlpha=0.35;}
-
-    // pivot at bottom-center of physics box
-    const px=this.x+this.w/2;
-    const py=this.bottom;
-
-    ctx.translate(px, py);
-    ctx.scale(this.facing, 1);   // flip when facing left
-
-    // squish/stretch on landing
-    const sy = this.landSquish>0 ? 1-this.landSquish*0.2 : 1;
-    const sx2= this.landSquish>0 ? 1+this.landSquish*0.15 : 1;
-    ctx.scale(sx2, sy);
-
-    // bob offset
-    const bob = this.bobY;
-
-    // === Character proportions (centered on x=0, feet at y=0) ===
-    // Part heights: shoes=7, legs=18, torso=22, head=20, hat=9
-    const FOOT_Y  =  0;
-    const LEG_Y   = -7;     // top of shoes
-    const TORSO_Y = -7-18;  // top of legs
-    const HEAD_Y  = -7-18-22;
-    const HAT_Y   = -7-18-22-18; // top of head (head h=18, then hat)
-
-    const cF=this.clrHoodie, cT=this._lighten(cF,.3), cS=this._darken(cF,.25);
-    const pF=this.clrPants,  pT=this._lighten(pF,.3), pS=this._darken(pF,.25);
-    const skF=this.clrSkin,  skT=this._lighten(skF,.25),skS=this._darken(skF,.2);
-    const shF=this.clrShoes, shT=this._lighten(shF,.3), shS=this._darken(shF,.2);
-    const hF=this.clrHat,    hT=this._lighten(hF,.2),   hS=this._darken(hF,.15);
-
-    const dep=9;
-
-    // ── LEGS (two separate blocks, animated) ─────────────
-    // Right leg (forward when swing>0)
-    this._drawLimb(ctx,
-      6, LEG_Y-bob, 11, 18,        // x,y,w,h relative to pivot
-      pF,pT,pS, dep,
-      -this.legSwing*18,            // rotation angle (degrees)
-      6, 0                          // rotation pivot x,y (bottom of limb)
-    );
-    // Left leg (backward when swing>0)
-    this._drawLimb(ctx,
-      -17, LEG_Y-bob, 11, 18,
-      pF,pT,pS, dep,
-      this.legSwing*18,
-      -17+5.5, 0
-    );
-
-    // ── SHOES ────────────────────────────────────────────
-    this._drawLimb(ctx, 4, FOOT_Y-7-bob, 13, 7, shF,shT,shS, dep,
-      -this.legSwing*18, 10, 0);
-    this._drawLimb(ctx,-17, FOOT_Y-7-bob, 13, 7, shF,shT,shS, dep,
-      this.legSwing*18, -17+6, 0);
-
-    // ── TORSO (hoodie) ───────────────────────────────────
-    D3.rbox(ctx, -14, TORSO_Y-bob, 28, 22, cF,cT,cS, {dep,r:4});
-
-    // Hoodie pocket detail
-    ctx.fillStyle='rgba(0,0,0,0.18)';
-    ctx.fillRect(-7, TORSO_Y-bob+14, 14, 6);
-    // "R" logo
-    ctx.fillStyle='rgba(255,255,255,0.5)';
-    ctx.font='bold 8px Orbitron,sans-serif';
-    ctx.textAlign='center';
-    ctx.fillText('R', 0, TORSO_Y-bob+10);
-
-    // ── ARMS ─────────────────────────────────────────────
-    // Right arm
-    this._drawLimb(ctx,
-      14, TORSO_Y-bob, 9, 18,
-      cF,cT,cS, dep,
-      this.armSwing*28, 14+4, 0
-    );
-    // Left arm
-    this._drawLimb(ctx,
-      -23, TORSO_Y-bob, 9, 18,
-      cF,cT,cS, dep,
-      -this.armSwing*28, -23+4, 0
-    );
-
-    // ── HANDS (skin) ─────────────────────────────────────
-    this._drawLimb(ctx, 15, TORSO_Y-bob+14, 7, 6, skF,skT,skS, dep*0.5,
-      this.armSwing*28, 18, 0);
-    this._drawLimb(ctx,-22, TORSO_Y-bob+14, 7, 6, skF,skT,skS, dep*0.5,
-      -this.armSwing*28, -22+3, 0);
-
-    // ── NECK ─────────────────────────────────────────────
-    D3.rbox(ctx, -4, HEAD_Y-bob+2, 8, 6, skF,skT,skS, {dep:5,r:2});
-
-    // ── HEAD ─────────────────────────────────────────────
-    const headTilt = this.headBob;
-    ctx.save();
-    ctx.translate(0, HEAD_Y-bob+2);
-    ctx.rotate(headTilt*Math.PI/180);
-    D3.rbox(ctx, -10, -18, 20, 18, skF,skT,skS, {dep:9,r:5});
-
-    // Face details
-    // Glasses
-    ctx.fillStyle='rgba(0,0,0,0.15)';
-    ctx.fillRect(-9, -14, 8, 5);
-    ctx.fillRect(1,  -14, 8, 5);
-    ctx.strokeStyle='rgba(0,0,0,0.4)';ctx.lineWidth=1;
-    ctx.strokeRect(-9,-14,8,5);ctx.strokeRect(1,-14,8,5);
-    ctx.beginPath();ctx.moveTo(-1,-12);ctx.lineTo(1,-12);ctx.stroke();
-    // Eyes
-    ctx.fillStyle='#1a1a2a';
-    ctx.fillRect(-7,-12,3,3);ctx.fillRect(3,-12,3,3);
-    // Eye shine
-    ctx.fillStyle='rgba(255,255,255,0.7)';
-    ctx.fillRect(-6.5,-12,1.5,1.5);ctx.fillRect(3.5,-12,1.5,1.5);
-    // Smile
-    ctx.strokeStyle='rgba(0,0,0,0.3)';ctx.lineWidth=1;
-    ctx.beginPath();ctx.arc(0,-8,3,0,Math.PI);ctx.stroke();
-    ctx.restore();
-
-    // ── HAT (beanie) ─────────────────────────────────────
-    ctx.save();
-    ctx.translate(0, HEAD_Y-bob+2);
-    ctx.rotate(headTilt*Math.PI/180);
-    D3.rbox(ctx, -11, -26, 22, 10, hF,hT,hS, {dep:7,r:4});
-    // Skull logo on hat
-    ctx.fillStyle='rgba(255,255,255,0.4)';
-    ctx.font='bold 7px sans-serif';
-    ctx.textAlign='center';
-    ctx.fillText('☠', 0, -19);
-    // Hat brim fold line
-    ctx.strokeStyle='rgba(255,255,255,0.12)';ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(-11,-18);ctx.lineTo(11,-18);ctx.stroke();
-    ctx.restore();
-
-    // ── Backpack ─────────────────────────────────────────
-    // (visible when facing right; drawn behind torso — order handled by ctx layers)
-    this._drawBackpack(ctx, TORSO_Y-bob);
-
-    // ── Glow outline when dashing ─────────────────────────
-    if(this.dashing){
-      ctx.globalAlpha=0.4;
-      ctx.shadowBlur=20;ctx.shadowColor='#00f5ff';
-      ctx.strokeStyle='#00f5ff';ctx.lineWidth=2;
-      ctx.strokeRect(-16,HEAD_Y-bob-28,32,55);
-    }
-
-    ctx.restore();
-  }
-
-  _drawBackpack(ctx, torsoY){
-    // Backpack only visible on right face (when facing right = scale(1,1))
-    const dep=8;
-    // drawn behind = at larger x offset showing the side face
-    D3.rbox(ctx, 14+dep*D3.AX-2, torsoY+2, 10, 16,
-      '#1a3a8a',
-      this._lighten('#1a3a8a',.2),
-      this._darken('#1a3a8a',.2),
-      {dep:5,r:3}
-    );
-  }
-
-  // Draw a limb block with rotation around given pivot
-  _drawLimb(ctx, x, y, w, h, cF, cT, cS, dep, angleDeg, pivotX, pivotY){
-    ctx.save();
-    ctx.translate(pivotX ?? x+w/2, pivotY ?? y);
-    ctx.rotate(angleDeg * Math.PI/180);
-    ctx.translate(-(pivotX ?? x+w/2), -(pivotY ?? y));
-    D3.rbox(ctx, x, y, w, h, cF, cT, cS, {dep, r:3});
-    ctx.restore();
-  }
-
-  _lighten(hex, f){
-    let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
-    r=Math.min(255,Math.floor(r+(255-r)*f));
-    g=Math.min(255,Math.floor(g+(255-g)*f));
-    b=Math.min(255,Math.floor(b+(255-b)*f));
-    return `rgb(${r},${g},${b})`;
-  }
-  _darken(hex, f){
-    let r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
-    r=Math.floor(r*(1-f));g=Math.floor(g*(1-f));b=Math.floor(b*(1-f));
-    return `rgb(${r},${g},${b})`;
-  }
+function playerAABB() {
+  return {
+    minX: player.pos.x - PW, maxX: player.pos.x + PW,
+    minY: player.pos.y,       maxY: player.pos.y + PH,
+    minZ: player.pos.z - PD, maxZ: player.pos.z + PD,
+  };
 }
 
-// ══════════════════════════════════════════════════════════
-//  3D PLATFORM
-// ══════════════════════════════════════════════════════════
-class Platform {
-  constructor(x,y,w,h,opts={}){
-    this.x=x;this.y=y;this.w=w;this.h=h;
-    this.solid=opts.solid??true;this.oneWay=opts.oneWay??false;
-    this.moving=opts.moving??false;
-    this.type=opts.type??'normal';
-    this.mx0=x;this.my0=y;this.mx1=opts.mx1??x;this.my1=opts.my1??y;
-    this.msp=opts.msp??1.5;this.mt=0;this.mdir=1;this.vx=0;this.vy=0;this._lx=x;this._ly=y;
-    this.crumbling=false;this.crumbleT=0;this.crumbleMax=55;this.crumbled=false;
-    this.visible=true;this.visT=0;this.visPer=opts.visPer??110;this.visOn=opts.visOn??70;
-    this.animT=0;
-    // 3D depth
-    this.depth = opts.depth ?? 14;
+function platAABB(p) {
+  return {
+    minX: p.x - p.w/2, maxX: p.x + p.w/2,
+    minY: p.y - p.h/2, maxY: p.y + p.h/2,
+    minZ: p.z - p.d/2, maxZ: p.z + p.d/2,
+  };
+}
+
+function overlapAABB(a, b) {
+  return a.maxX > b.minX && a.minX < b.maxX &&
+         a.maxY > b.minY && a.minY < b.maxY &&
+         a.maxZ > b.minZ && a.minZ < b.maxZ;
+}
+
+function resolvePhysics(dt) {
+  if (player.dead) return;
+  if (player.invTimer > 0) player.invTimer -= dt;
+
+  const L = keys['KeyA'], R = keys['KeyD'], F = keys['KeyW'], B = keys['KeyS'];
+  const sprint = keys['ShiftLeft'] || keys['ShiftRight'];
+  const spd = sprint ? SPRINT_SP : WALK_SP;
+
+  // Move direction based on yaw
+  const fwd  = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+  const move  = new THREE.Vector3();
+  if (F) move.addScaledVector(fwd, 1);
+  if (B) move.addScaledVector(fwd, -1);
+  if (L) move.addScaledVector(right, -1);
+  if (R) move.addScaledVector(right, 1);
+  if (move.lengthSq() > 0) move.normalize();
+
+  const accel = player.onGround ? 18 : 7;
+  const fric  = player.onGround ? 0.12 : 0.02;
+
+  player.vel.x += (move.x * spd - player.vel.x) * Math.min(accel * dt, 1) + player.vel.x * -fric;
+  player.vel.z += (move.z * spd - player.vel.z) * Math.min(accel * dt, 1) + player.vel.z * -fric;
+
+  // Simplify: direct set horizontal when grounded
+  if (player.onGround) {
+    player.vel.x = move.x * spd * 0.9 + player.vel.x * 0.1;
+    player.vel.z = move.z * spd * 0.9 + player.vel.z * 0.1;
+  } else {
+    player.vel.x += move.x * spd * dt * 4;
+    player.vel.z += move.z * spd * dt * 4;
+    const hspd = Math.sqrt(player.vel.x**2 + player.vel.z**2);
+    if (hspd > spd * 1.5) { player.vel.x *= spd * 1.5 / hspd; player.vel.z *= spd * 1.5 / hspd; }
   }
 
-  update(player){
-    this._lx=this.x;this._ly=this.y;this.animT++;
-    if(this.moving){
-      this.mt+=this.mdir*this.msp/100;
-      if(this.mt>=1){this.mt=1;this.mdir=-1;}if(this.mt<=0){this.mt=0;this.mdir=1;}
-      const t=3*this.mt*this.mt-2*this.mt*this.mt*this.mt;
-      const nx=lerp(this.mx0,this.mx1,t),ny=lerp(this.my0,this.my1,t);
-      this.vx=nx-this.x;this.vy=ny-this.y;this.x=nx;this.y=ny;
-    }
-    if(this.type==='disappear'){
-      this.visT++;if(this.visT>=this.visPer)this.visT=0;
-      this.visible=this.visT<this.visOn;this.solid=this.visible;
-    }
-    if(this.type==='crumble'&&this.crumbling){
-      this.crumbleT++;if(this.crumbleT>=this.crumbleMax){this.crumbled=true;this.solid=false;}
+  // Jump
+  if (jp['Space']) {
+    if (player.jumpsLeft > 0) {
+      player.vel.y = JUMP_V + (player.jumpsLeft === 2 ? 0 : -1.5);
+      player.onGround = false;
+      player.jumpsLeft--;
+      sfxJump();
+      if (player.jumpsLeft === 0) notif('ÇİFT ZIPL!');
     }
   }
 
-  startCrumble(){if(this.type==='crumble'&&!this.crumbling){this.crumbling=true;this.crumbleT=0;}}
-  isStoodOn(p){return Math.abs(p.bottom-this.y)<4&&p.x<this.x+this.w&&p.right>this.x;}
+  // Gravity
+  player.vel.y += GRAVITY * dt;
+  player.vel.y = Math.max(player.vel.y, MAX_FALL);
 
-  draw(ctx){
-    if(!this.visible){
-      ctx.save();ctx.globalAlpha=0.18;ctx.strokeStyle='#00f5ff';ctx.lineWidth=1;ctx.setLineDash([4,4]);
-      ctx.strokeRect(this.x,this.y,this.w,this.h);ctx.restore();return;
+  // Carry moving platform
+  if (player.standingOn && player.standingOn.moving) {
+    const mp = movingPlatforms.find(m => m.obj === player.standingOn);
+    if (mp && player.prevPlatPos) {
+      player.pos.x += mp.obj.x - player.prevPlatPos.x;
+      player.pos.z += mp.obj.z - player.prevPlatPos.z;
     }
+    if (mp) player.prevPlatPos = new THREE.Vector3(mp.obj.x, mp.obj.y, mp.obj.z);
+  } else { player.prevPlatPos = null; }
+  player.standingOn = null;
 
-    ctx.save();
-    if(this.crumbling){
-      const t=this.crumbleT/this.crumbleMax;
-      ctx.globalAlpha=1-t*.85;
-      ctx.translate((Math.random()-.5)*t*2.5,(Math.random()-.5)*t*2.5);
+  // Move Y then resolve
+  player.pos.y += player.vel.y * dt;
+  const wasOnGround = player.onGround;
+  player.onGround = false;
+
+  for (const p of objects) {
+    if (!overlapAABB(playerAABB(), platAABB(p))) continue;
+    const pb = platAABB(p);
+    if (player.vel.y <= 0 && player.pos.y >= pb.maxY - 0.15) {
+      // Land on top
+      player.pos.y = pb.maxY;
+      player.vel.y = 0;
+      player.onGround = true;
+      player.jumpsLeft = 2;
+      player.standingOn = p;
+      // Bounce
+      if (p.type === 'bounce') { player.vel.y = JUMP_V * 1.4; player.onGround = false; sfxJump(); }
+    } else if (player.vel.y > 0 && player.pos.y + PH <= pb.minY + 0.3) {
+      player.pos.y = pb.minY - PH;
+      player.vel.y = 0;
     }
+  }
 
-    // Pick colours by type
-    let cF,cT,cS,glowColor=null;
-    switch(this.type){
-      case 'lava':   cF='#cc2200';cT='#ff4400';cS='#881100';glowColor='#ff3300';break;
-      case 'ice':    cF='#88ccee';cT='#bbddff';cS='#5599bb';glowColor='#aaddff';break;
-      case 'bounce': cF='#228800';cT='#44ff00';cS='#115500';glowColor='#7fff00';break;
-      case 'crumble':cF='#7a5533';cT='#aa7755';cS='#553322';break;
-      default:
-        if(this.oneWay){cF='#0d3320';cT='#1a6640';cS='#082210';glowColor='#2ecc71';}
-        else{cF='#0e1c3d';cT='#1a3060';cS='#080e24';glowColor='#00f5ff';}
+  if (!wasOnGround && player.onGround) { sfxLand(); landTimer = 1; }
+  if (wasOnGround && !player.onGround) { /* coyote could go here */ }
+
+  // Move X then resolve
+  player.pos.x += player.vel.x * dt;
+  for (const p of objects) {
+    const pb = platAABB(p);
+    const pl = playerAABB();
+    if (!overlapAABB(pl, pb)) continue;
+    if (player.vel.x > 0) { player.pos.x = pb.minX - PW - 0.01; }
+    else { player.pos.x = pb.maxX + PW + 0.01; }
+    player.vel.x = 0;
+  }
+
+  // Move Z then resolve
+  player.pos.z += player.vel.z * dt;
+  for (const p of objects) {
+    const pb = platAABB(p);
+    const pl = playerAABB();
+    if (!overlapAABB(pl, pb)) continue;
+    if (player.vel.z > 0) { player.pos.z = pb.minZ - PD - 0.01; }
+    else { player.pos.z = pb.maxZ + PD + 0.01; }
+    player.vel.z = 0;
+  }
+
+  // Fall death
+  if (player.pos.y < -15) {
+    if (!player.dead) { player.dead = true; sfxDie(); setTimeout(showDeath, 600); }
+    return;
+  }
+
+  // Hazard damage (lava type)
+  for (const p of objects) {
+    if (p.type !== 'lava') continue;
+    if (overlapAABB(playerAABB(), platAABB(p)) && player.invTimer <= 0) {
+      player.health -= 30; player.invTimer = 1.2;
+      if (player.health <= 0) { player.dead = true; sfxDie(); setTimeout(showDeath, 600); }
     }
+  }
 
-    // Lava pulse
-    if(this.type==='lava'){
-      const p=Math.sin(this.animT*.12)*.15;
-      ctx.globalAlpha=(ctx.globalAlpha||1)-(ctx.globalAlpha||1)*p;
+  // Coin collection
+  for (const c of coins) {
+    if (c.collected) continue;
+    const dx = player.pos.x - c.x, dy = player.pos.y + 1 - c.y, dz = player.pos.z - c.z;
+    if (Math.sqrt(dx*dx + dy*dy + dz*dz) < c.r) {
+      c.collected = true; scene.remove(c.mesh);
+      player.score += c.value; if (player.score > saveData.best) saveData.best = player.score;
+      sfxCoin(); notif(`+${c.value} KOİN 🪙`);
     }
+  }
 
-    // Glow shadow on special types
-    if(glowColor){ctx.shadowBlur=8;ctx.shadowColor=glowColor;}
-
-    D3.box(ctx,this.x,this.y,this.w,this.h,cF,cT,cS,{dep:this.depth,edge:true,edgeColor:'rgba(255,255,255,0.12)'});
-
-    // Top surface texture
-    if(this.oneWay){
-      ctx.shadowBlur=12;ctx.shadowColor='#2ecc71';
-      ctx.strokeStyle='#2ecc71';ctx.lineWidth=2;
-      ctx.beginPath();ctx.moveTo(this.x,this.y);ctx.lineTo(this.x+this.w,this.y);ctx.stroke();
+  // Checkpoint
+  for (const cp of checkpoints) {
+    if (cp.activated) continue;
+    const dx = player.pos.x - cp.x, dz = player.pos.z - cp.z;
+    if (Math.sqrt(dx*dx + dz*dz) < cp.r) {
+      cp.activated = true;
+      player.cpPos.copy(player.pos);
+      sfxCP(); notif('✓ KONTROL NOKTASI');
     }
+  }
 
-    // Moving platform indicator dots
-    if(this.moving){
-      ctx.fillStyle='rgba(0,245,255,0.5)';
-      for(let i=0;i<3;i++){
-        const ox=(this.animT*1.5+i*8)%(this.w+16)-8;
-        ctx.beginPath();ctx.arc(this.x+ox,this.y+3,2,0,Math.PI*2);ctx.fill();
+  // Goal
+  if (goal) {
+    const dx = player.pos.x - goal.x, dz = player.pos.z - goal.z;
+    const dy = (player.pos.y + 1) - (goal.y + 2.2);
+    if (Math.sqrt(dx*dx + dy*dy + dz*dz) < goal.r) {
+      sfxWin(); showWin();
+    }
+  }
+
+  // ── Camera update ─────────────────────────────────
+  const hspd2 = Math.sqrt(player.vel.x**2 + player.vel.z**2);
+  const isMoving = hspd2 > 0.3 && player.onGround;
+  if (isMoving) { bobT += dt * hspd2 * 0.6; }
+  bobY = isMoving ? Math.sin(bobT * Math.PI * 2) * 0.042 : lerp(bobY, 0, 0.15);
+  bobX = isMoving ? Math.sin(bobT * Math.PI) * 0.018 : lerp(bobX, 0, 0.15);
+  if (landTimer > 0) { landTimer -= dt * 4; }
+  const landSquish = Math.max(0, landTimer) * -0.06;
+
+  camera.position.set(player.pos.x, player.pos.y + 1.65 + bobY + landSquish, player.pos.z);
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+  camera.rotation.z = bobX;
+
+  // FOV sprint effect
+  const targetFOV = (keys['ShiftLeft'] || keys['ShiftRight']) && isMoving ? 88 : 75;
+  camera.fov = lerp(camera.fov, targetFOV, 0.08);
+  camera.updateProjectionMatrix();
+}
+
+function respawn() {
+  player.pos.copy(player.cpPos);
+  player.vel.set(0, 0, 0);
+  player.health = player.maxHp;
+  player.dead = false; player.invTimer = 1;
+  player.jumpsLeft = 2;
+  player.deaths++; deaths++;
+  document.getElementById('deathScreen').classList.add('hidden');
+  notif('♻ YENİDEN BAŞLADI');
+}
+
+// ══════════════════════════════════════════════════
+//  LEVEL DEFINITIONS (3D Roblox Obby style)
+// ══════════════════════════════════════════════════
+const LEVELS = [
+  {
+    name: 'Başlangıç Koşusu', sky: 0x87CEEB, fog: 0x87CEEB,
+    build() {
+      // Large start
+      addPlatform(0, 0, 0, 12, 1, 12, 0x4488ff);
+      player.pos.set(0, 3, 0); player.cpPos.set(0, 3, 0);
+      // Stepping stones
+      const steps = [
+        [0,0,10,3,1,3],[3,0,16,3,1,3],[-2,1,22,3,1,3],[1,2,28,3,1,3],
+        [4,2,34,3,1,3],[0,3,40,3,1,3],[-3,3,46,3,1,3],[0,4,52,4,1,4],
+      ];
+      steps.forEach(([x,y,z,w,h,d]) => addPlatform(x,y,z,w,h,d));
+      // Coins
+      [[0,2,10],[3,2,16],[-2,3,22],[1,4,28]].forEach(([x,y,z]) => addCoin(x,y,z));
+      // Moving platform
+      addPlatform(0,5,62,4,1,4,0xff4400,{moving:true,ex:6,ez:62,mspeed:1.5});
+      addCheckpoint(0,5,74);
+      addPlatform(0,5,76,8,1,8,0x44ff44);
+      // Second section - stairs going up
+      for (let i = 0; i < 6; i++) addPlatform(i*3-4,5+i,88+i*4,3,1,4,0xff8800);
+      addPlatform(0,11,116,6,1,6,0xff0088);
+      [[0,13,116],[3,13,116],[-3,13,116]].forEach(([x,y,z]) => addCoin(x,y,z,100));
+      addCheckpoint(0,12,128);
+      addPlatform(0,12,130,10,1,10,0x8844ff);
+      // Tricky thin beams
+      addPlatform(0,12,142,1,1,8,0xff0000);
+      addPlatform(4,12,150,1,1,8,0xff0000);
+      addPlatform(-2,12,158,1,1,8,0xff0000);
+      addPlatform(0,12,168,8,1,8,0x00ccff);
+      addGoal(0,12,168);
+    }
+  },
+  {
+    name: 'Gökyüzü Köprüleri', sky: 0x4466cc, fog: 0x4466cc,
+    build() {
+      addPlatform(0,0,0,10,1,10,0x2255aa);
+      player.pos.set(0,3,0); player.cpPos.set(0,3,0);
+      // High altitude platforms
+      const path = [
+        [0,0,14,4,1,4],[6,2,22,4,1,4],[-4,4,30,4,1,4],[2,6,40,4,1,4],
+        [8,8,50,3,1,3],[-6,10,58,3,1,3],[0,12,68,5,1,5],
+      ];
+      path.forEach(([x,y,z,w,h,d]) => addPlatform(x,y,z,w,h,d));
+      path.forEach(([x,y,z]) => addCoin(x,y+2,z));
+      // Moving platforms over big gaps
+      addPlatform(-4,14,80,3,1,3,0xff6600,{moving:true,ex:4,ez:80,mspeed:1.8});
+      addPlatform(0,16,92,3,1,3,0xff6600,{moving:true,ey:20,ez:92,mspeed:1.2});
+      addCheckpoint(0,20,104);
+      addPlatform(0,20,106,8,1,8,0x8800ff);
+      // Floating islands with gaps
+      [[-8,20,118],[0,22,126],[8,24,134],[-4,26,142],[0,28,150]].forEach(([x,y,z]) => {
+        addPlatform(x,y,z,3,1,3); addCoin(x,y+2,z);
+      });
+      addPlatform(0,30,162,8,1,8,0x00ff88);
+      addCheckpoint(0,30,162);
+      [[0,32,162],[3,32,162],[-3,32,162]].forEach(([x,y,z]) => addCoin(x,y,z,100));
+      // Final rush
+      for (let i=0;i<8;i++) addPlatform(i%2===0?-3:3,30+i*0.5,174+i*5,2,1,3,COLORS[(i*3)%COLORS.length]);
+      addPlatform(0,34,220,8,1,8,0xffff00);
+      addGoal(0,34,220);
+    }
+  },
+  {
+    name: 'Lav Labirenti', sky: 0x331100, fog: 0x220800,
+    build() {
+      addPlatform(0,0,0,10,1,10,0x883300);
+      player.pos.set(0,3,0); player.cpPos.set(0,3,0);
+      // Lava floor
+      addPlatform(0,-3,80,200,1,200,0xff2200,{type:'lava'});
+      // Safe islands
+      const islands = [
+        [0,0,14,4,1,5],[6,0,22,3,1,4],[-5,0,30,4,1,4],[2,0,40,3,1,5],
+        [-3,0,50,4,1,4],[5,0,60,3,1,3],[0,0,70,4,1,4],[0,0,82,5,1,5],
+      ];
+      islands.forEach(([x,y,z,w,h,d]) => addPlatform(x,y,z,w,h,d,0x996633));
+      // Moving platforms over lava
+      addPlatform(0,0,92,3,1,3,0xff6600,{moving:true,ex:8,ez:92,mspeed:2});
+      addPlatform(4,0,104,3,1,3,0xff6600,{moving:true,ex:-4,ez:104,mspeed:2.2});
+      addCheckpoint(0,0,116);
+      addPlatform(0,0,118,8,1,8,0x663300);
+      // Crumble zone (thin platforms, harder)
+      for (let i=0;i<10;i++) {
+        addPlatform(i%2===0?-4:4,0,130+i*7,2,1,3,0x884422);
+        addCoin(i%2===0?-4:4,2,130+i*7);
       }
+      addPlatform(0,0,202,8,1,8,0x996633);
+      addCheckpoint(0,0,202);
+      [[0,2,202],[3,2,202],[-3,2,202]].forEach(([x,y,z]) => addCoin(x,y,z,100));
+      // Bounce platforms
+      for(let i=0;i<4;i++) addPlatform(i%2===0?-5:5,0,214+i*8,3,1,3,0x00ff88,{type:'bounce'});
+      addPlatform(0,3,248,8,1,8,0xffaa00);
+      addGoal(0,3,248);
     }
-
-    // Ice shine overlay
-    if(this.type==='ice'){
-      ctx.globalAlpha=0.2;ctx.fillStyle='rgba(255,255,255,0.8)';
-      ctx.fillRect(this.x+2,this.y+2,this.w-4,4);
+  },
+  {
+    name: 'Buz Dağı', sky: 0x99ccff, fog: 0xaaddff,
+    build() {
+      addPlatform(0,0,0,10,1,10,0x88bbff);
+      player.pos.set(0,3,0); player.cpPos.set(0,3,0);
+      // Zigzag ice climb
+      let x=0,y=0,z=0;
+      const zigzag=[[4,1,10],[−4,2,20],[6,3,30],[−6,4,40],[4,5,50],[0,6,60]];
+      // Manual zigzag
+      [[4,1,12,3,1,4],[-4,2,22,3,1,4],[6,3,32,3,1,4],[-6,4,42,3,1,4],
+       [4,5,52,3,1,4],[0,6,62,5,1,5]].forEach(([px,py,pz,w,h,d]) => {
+        addPlatform(px,py,pz,w,h,d,0x88ccff); addCoin(px,py+2,pz);
+      });
+      // Moving ice blocks
+      addPlatform(0,7,76,3,1,3,0xaaeeff,{moving:true,ex:6,ey:7,ez:76,mspeed:1.4});
+      addPlatform(3,9,88,3,1,3,0xaaeeff,{moving:true,ex:-3,ey:9,ez:88,mspeed:1.6});
+      addCheckpoint(0,10,100);
+      addPlatform(0,10,102,8,1,8,0x6699ff);
+      // Thin ice beams
+      for(let i=0;i<6;i++) addPlatform((i%2===0?-4:4)+i*0.5,10+i,114+i*7,1.2,1,4,0xaaddff);
+      addPlatform(0,16,158,8,1,8,0x4466ff);
+      addCheckpoint(0,16,158);
+      // Vertical ice pillars to jump between
+      [[−5,16,170],[2,18,178],[−3,20,186],[4,22,194],[0,24,202]].forEach(([px,py,pz]) => {
+        addPlatform(px,py,pz,2,1,2,0x99ddff); addCoin(px,py+2,pz,75);
+      });
+      addPlatform(0,26,214,8,1,8,0xffffff);
+      addGoal(0,26,214);
     }
-
-    ctx.restore();
-  }
-}
-
-// ── Hazard ────────────────────────────────────────────────
-class Hazard {
-  constructor(x,y,w,h,opts={}){
-    this.x=x;this.y=y;this.w=w;this.h=h;
-    this.type=opts.type??'spike';this.damage=opts.damage??25;
-    this.moving=opts.moving??false;
-    this.mx0=x;this.mx1=opts.mx1??x;this.my0=y;this.my1=opts.my1??y;
-    this.msp=opts.msp??1;this.mt=0;this.mdir=1;this.animT=0;
-  }
-  update(){
-    this.animT++;
-    if(this.moving){
-      this.mt+=this.mdir*this.msp/100;
-      if(this.mt>=1){this.mt=1;this.mdir=-1;}if(this.mt<=0){this.mt=0;this.mdir=1;}
-      const t=3*this.mt*this.mt-2*this.mt*this.mt*this.mt;
-      this.x=lerp(this.mx0,this.mx1,t);this.y=lerp(this.my0,this.my1,t);
-    }
-  }
-  draw(ctx){
-    ctx.save();
-    if(this.type==='spike')this._spike(ctx);
-    else if(this.type==='laser')this._laser(ctx);
-    else if(this.type==='saw')this._saw(ctx);
-    ctx.restore();
-  }
-  _spike(ctx){
-    const n=Math.max(1,Math.floor(this.w/18)),sw=this.w/n;
-    ctx.shadowBlur=8;ctx.shadowColor='#ff0044';
-    for(let i=0;i<n;i++){
-      const sx=this.x+i*sw;
-      ctx.beginPath();ctx.moveTo(sx,this.y+this.h);ctx.lineTo(sx+sw/2,this.y);ctx.lineTo(sx+sw,this.y+this.h);ctx.closePath();
-      const g=ctx.createLinearGradient(sx,this.y,sx,this.y+this.h);
-      g.addColorStop(0,'#ff5577');g.addColorStop(1,'#440011');ctx.fillStyle=g;ctx.fill();
-      // 3D side on spike
-      ctx.fillStyle='#660022';
-      ctx.beginPath();ctx.moveTo(sx+sw,this.y+this.h);ctx.lineTo(sx+sw+4,this.y+this.h-2);ctx.lineTo(sx+sw/2+4,this.y+2);ctx.lineTo(sx+sw/2,this.y);ctx.closePath();ctx.fill();
-    }
-  }
-  _laser(ctx){
-    const p=Math.sin(this.animT*.14)*.4+.6;
-    ctx.shadowBlur=18;ctx.shadowColor='#ff006e';
-    ctx.fillStyle=`rgba(255,0,100,${p})`;ctx.fillRect(this.x,this.y,this.w,this.h);
-    ctx.fillStyle=`rgba(255,200,220,${p*.5})`;ctx.fillRect(this.x+1,this.y+1,this.w-2,this.h-2);
-  }
-  _saw(ctx){
-    const cx=this.x+this.w/2,cy=this.y+this.h/2,r=this.w/2,ang=this.animT*.09;
-    ctx.translate(cx,cy);ctx.rotate(ang);
-    ctx.shadowBlur=12;ctx.shadowColor='#ff0044';
-    ctx.beginPath();
-    const teeth=12;
-    for(let i=0;i<teeth;i++){
-      const a=Math.PI*2/teeth*i,b=Math.PI*2/teeth*(i+.5);
-      ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);ctx.lineTo(Math.cos(b)*(r*.6),Math.sin(b)*(r*.6));
-    }
-    ctx.closePath();ctx.fillStyle='#cc0033';ctx.fill();
-    ctx.strokeStyle='#ff4466';ctx.lineWidth=1.5;ctx.stroke();
-  }
-}
-
-// ── Coin ──────────────────────────────────────────────────
-class Coin {
-  constructor(x,y,opts={}){
-    this.x=x;this.y=y;this.w=20;this.h=20;
-    this.value=opts.value??50;this.collected=false;
-    this.baseY=y;this.t=Math.random()*Math.PI*2;
-    this.color=this.value>=200?'#ff006e':this.value>=100?'#00f5ff':'#ffd700';
-    this.rotAngle=0;
-  }
-  update(){this.t+=.06;this.y=this.baseY+Math.sin(this.t)*5;this.rotAngle+=.04;}
-  draw(ctx){
-    if(this.collected)return;
-    ctx.save();
-    const cx=this.x+this.w/2,cy=this.y+this.h/2,r=this.w/2;
-    // 3D coin: ellipse (rotated)
-    ctx.shadowBlur=14;ctx.shadowColor=this.color;
-    const scaleX=Math.abs(Math.cos(this.rotAngle));
-    ctx.translate(cx,cy);ctx.scale(scaleX,1);
-    const g=ctx.createRadialGradient(-r*.3,-r*.3,0,0,0,r);
-    g.addColorStop(0,'rgba(255,255,255,.9)');g.addColorStop(.4,this.color);g.addColorStop(1,'rgba(0,0,0,.4)');
-    ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.fill();
-    if(this.value>=100){ctx.fillStyle='rgba(255,255,255,.85)';ctx.font=`${r*1.2}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('★',0,0);}
-    ctx.restore();
-  }
-}
-
-// ── Checkpoint ────────────────────────────────────────────
-class Checkpoint {
-  constructor(x,y){this.x=x;this.y=y;this.w=22;this.h=58;this.activated=false;this.animT=0;}
-  update(){this.animT++;}
-  draw(ctx){
-    ctx.save();
-    const cx=this.x+this.w/2;
-    const color=this.activated?'#ffd700':'#00f5ff';
-    // pole with 3D
-    D3.box(ctx,cx-3,this.y,6,this.h,'#666','#888','#444',{dep:3});
-    // flag
-    ctx.shadowBlur=12;ctx.shadowColor=color;ctx.fillStyle=color;
-    const wave=Math.sin(this.animT*.1)*4;
-    ctx.beginPath();ctx.moveTo(cx,this.y);ctx.lineTo(cx+20+wave,this.y+10);ctx.lineTo(cx+18+wave,this.y+22);ctx.lineTo(cx,this.y+19);ctx.closePath();ctx.fill();
-    if(this.activated){ctx.globalAlpha=Math.sin(this.animT*.1)*.3+.05;ctx.fillStyle=color;ctx.beginPath();ctx.arc(cx,this.y+this.h/2,(this.animT%60)*1.2,0,Math.PI*2);ctx.fill();}
-    ctx.restore();
-  }
-}
-
-// ── GoalFlag ──────────────────────────────────────────────
-class GoalFlag {
-  constructor(x,y){this.x=x;this.y=y;this.w=28;this.h=76;this.animT=0;this.reached=false;}
-  update(p){
-    this.animT++;
-    if(!this.reached&&p.x<this.x+this.w+20&&p.right>this.x&&p.y<this.y+this.h&&p.bottom>this.y)this.reached=true;
-  }
-  draw(ctx){
-    ctx.save();
-    const cx=this.x+this.w/2,c=this.reached?'#7fff00':'#ffd700';
-    ctx.shadowBlur=18;ctx.shadowColor=c;
-    D3.box(ctx,cx-3,this.y,6,this.h,'#777','#999','#555',{dep:3});
-    const wave=Math.sin(this.animT*.09)*8;
-    ctx.fillStyle=c;
-    ctx.beginPath();ctx.moveTo(cx,this.y);ctx.lineTo(cx+28+wave,this.y+14);ctx.lineTo(cx+26+wave,this.y+30);ctx.lineTo(cx,this.y+27);ctx.closePath();ctx.fill();
-    ctx.globalAlpha=.12+Math.sin(this.animT*.08)*.08;
-    ctx.fillStyle=c;ctx.beginPath();ctx.arc(cx,this.y+this.h/2,28+Math.sin(this.animT*.06)*8,0,Math.PI*2);ctx.fill();
-    ctx.restore();
-  }
-}
-
-// ══════════════════════════════════════════════════════════
-//  LEVELS
-// ══════════════════════════════════════════════════════════
-const LEVEL_META=[
-  {name:'Başlangıç Yolu',   diff:'easy',    emoji:'🌆'},
-  {name:'Gökdelenler Üstü', diff:'medium',  emoji:'🏙️'},
-  {name:'Buz Zirvesi',      diff:'medium',  emoji:'❄️'},
-  {name:'Lav Koşusu',       diff:'hard',    emoji:'🌋'},
-  {name:'Matrix Labirenti', diff:'hard',    emoji:'💻'},
-  {name:'Neon Gece',        diff:'hard',    emoji:'🌃'},
-  {name:'Yerçekimi Kaos',   diff:'extreme', emoji:'🌀'},
-  {name:'Son Savaş',        diff:'extreme', emoji:'💀'},
+  },
 ];
 
-function buildLevel(id){
-  const fns=[lv0,lv1,lv2,lv3,lv4,lv5,lv6,lv7];
-  return fns[id%fns.length]();
-}
-function mkLv(o){return{name:o.name,width:o.width??6000,height:o.height??1100,
-  bg1:o.bg1??'#050811',bg2:o.bg2??'#0a1628',
-  platforms:o.platforms??[],hazards:o.hazards??[],
-  coins:o.coins??[],cps:o.cps??[],
-  spawnX:o.spawnX??80,spawnY:o.spawnY??560,
-  goalX:o.goalX??5700,goalY:o.goalY??300,par:o.par??90};}
+function loadLevel(id) {
+  clearWorld();
+  currentLevel = id;
+  score = 0; deaths = 0;
+  player.score = 0; player.health = player.maxHp; player.dead = false;
+  player.vel.set(0,0,0); player.jumpsLeft = 2;
+  gameStartTime = Date.now();
+  yaw = 0; pitch = 0;
 
-function lv0(){
-  const p=[],h=[],c=[],cp=[];
-  for(let x=0;x<5000;x+=200)p.push(new Platform(x,680,220,36));
-  [new Platform(300,580,130,18,{oneWay:true}),new Platform(560,500,120,18,{oneWay:true}),
-   new Platform(820,420,150,18,{oneWay:true}),new Platform(1100,370,200,28),
-   new Platform(1400,310,100,18,{oneWay:true}),
-   new Platform(1650,390,120,18,{moving:true,mx1:1870,msp:1.6}),
-   new Platform(1920,490,180,28),new Platform(2200,430,120,18,{oneWay:true}),
-   new Platform(2500,350,180,28),new Platform(2800,290,140,18),
-   new Platform(3100,250,120,18,{moving:true,mx1:3300,msp:2}),
-  ].forEach(x=>p.push(x));
-  for(let x=350;x<1000;x+=120)c.push(new Coin(x,450));
-  c.push(new Coin(1150,320,{value:100}));
-  h.push(new Hazard(450,668,80,12));h.push(new Hazard(730,668,80,12));
-  cp.push(new Checkpoint(1100,310));cp.push(new Checkpoint(2000,430));cp.push(new Checkpoint(3200,200));
-  for(let x=3400;x<4600;x+=220)p.push(new Platform(x,290,200,28));
-  h.push(new Hazard(3600,278,60,12));h.push(new Hazard(4000,278,80,12));
-  for(let x=3500;x<4600;x+=150)c.push(new Coin(x,240));
-  return mkLv({name:'Başlangıç Yolu',platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:60,spawnY:600,goalX:4650,goalY:240,par:60,bg1:'#050811',bg2:'#081428'});
-}
+  const lv = LEVELS[id % LEVELS.length];
+  scene.background = new THREE.Color(lv.sky);
+  if (scene.fog) { scene.fog.color.set(lv.fog); }
+  lv.build();
 
-function lv1(){
-  const p=[],h=[],c=[],cp=[];
-  for(let x=0;x<5200;x+=300)p.push(new Platform(x,800,260,50,{depth:20}));
-  for(let i=0;i<18;i++){
-    const bx=150+i*280,by=rand(300,600);
-    p.push(new Platform(bx,by,rand(70,150),18,{oneWay:i%3!==0,depth:12}));
-    c.push(new Coin(bx+30,by-32));
-    if(i%2===0)p.push(new Platform(bx+80,by+(i%2?100:-100),90,14,{moving:true,mx1:bx+80+140,msp:1.3,depth:10}));
-  }
-  for(let x=800;x<4800;x+=650)h.push(new Hazard(x,rand(380,620),10,200,{type:'laser',damage:30}));
-  cp.push(new Checkpoint(1600,500));cp.push(new Checkpoint(3300,350));
-  return mkLv({platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:80,spawnY:700,goalX:4900,goalY:350,par:90,bg1:'#020510',bg2:'#050f25'});
-}
-
-function lv2(){
-  const p=[],h=[],c=[],cp=[];
-  for(let x=0;x<5500;x+=180){const y=rand(580,660);
-    p.push(new Platform(x,y,200,28,{type:'ice',depth:12}));
-    if(Math.random()>.7)h.push(new Hazard(x+rand(10,160),y-12,rand(32,80),12));}
-  for(let i=0;i<12;i++){const bx=200+i*420,by=rand(340,520);
-    p.push(new Platform(bx,by,rand(80,160),16,{type:'ice',moving:i%2===0,mx1:bx+(i%2===0?160:0),my1:by,msp:1.1,depth:10}));
-    c.push(new Coin(bx+40,by-32,{value:75}));}
-  for(let x=200;x<5000;x+=250)h.push(new Hazard(x,0,14,rand(40,120),{type:'spike',damage:35}));
-  cp.push(new Checkpoint(1800,430));cp.push(new Checkpoint(3600,370));
-  return mkLv({platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:60,spawnY:520,goalX:5300,goalY:300,par:100,bg1:'#030d1f',bg2:'#061a38'});
-}
-
-function lv3(){
-  const p=[],h=[],c=[],cp=[];
-  h.push(new Hazard(0,830,6000,60,{type:'lava',damage:50}));
-  p.push(new Platform(0,700,100,200));
-  for(let i=0;i<24;i++){const bx=100+i*220,by=rand(560,720);
-    p.push(new Platform(bx,by,rand(80,160),18,{type:'crumble',depth:10}));
-    if(Math.random()>.6)c.push(new Coin(bx+30,by-30,{value:100}));}
-  [1200,2400,3600,4800].forEach(x=>p.push(new Platform(x,620,160,36)));
-  for(let x=300;x<5000;x+=400)h.push(new Hazard(x,rand(320,490),rand(48,96),12,{type:'spike',damage:30}));
-  for(let x=500;x<5000;x+=600)h.push(new Hazard(x,rand(590,710),42,42,{type:'saw',damage:40,moving:true,mx1:x+200,msp:1.5}));
-  for(let i=0;i<10;i++){const bx=800+i*400,by=rand(480,620);
-    p.push(new Platform(bx,by,100,14,{type:'disappear',visPer:100,visOn:60,depth:8}));}
-  cp.push(new Checkpoint(1300,560));cp.push(new Checkpoint(3700,550));
-  return mkLv({platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:20,spawnY:640,goalX:5200,goalY:560,par:75,bg1:'#0f0300',bg2:'#200800'});
-}
-
-function lv4(){
-  const p=[],h=[],c=[],cp=[];
-  for(let col=0;col<28;col++){const bx=col*200;
-    for(let row=0;row<5;row++){if(Math.random()>.35){const by=200+row*120;
-      p.push(new Platform(bx,by,160,14,{oneWay:row>0,depth:8}));
-      if(Math.random()>.5)c.push(new Coin(bx+60,by-30,{value:75}));}}
-    if(col%4===0)h.push(new Hazard(bx+60,rand(200,750),12,rand(60,200),{type:'laser',damage:35}));}
-  for(let x=0;x<5600;x+=200)p.push(new Platform(x,800,220,60,{depth:18}));
-  for(let i=0;i<12;i++){const bx=300+i*450,by=rand(260,620);
-    p.push(new Platform(bx,by,100,14,{moving:true,mx1:bx,my1:by+(i%2?160:-160),msp:1.3,depth:8}));}
-  cp.push(new Checkpoint(2000,600));cp.push(new Checkpoint(4000,380));
-  return mkLv({platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:60,spawnY:700,goalX:5500,goalY:260,par:100,bg1:'#000a00',bg2:'#001400'});
-}
-
-function lv5(){const p=[],h=[],c=[],cp=[];
-  const cols=['#ff006e','#00f5ff','#7fff00','#ffd700','#d400ff'];
-  for(let i=0;i<35;i++){const bx=100+i*160,by=rand(200,680),col=cols[i%cols.length];
-    p.push(new Platform(bx,by,rand(60,140),14,{oneWay:i%4!==0,depth:8}));
-    c.push(new Coin(bx+20,by-34,{value:i%5===0?200:50}));}
-  for(let x=0;x<5600;x+=200)p.push(new Platform(x,790,220,70,{depth:16}));
-  for(let i=0;i<14;i++){const bx=250+i*380;
-    h.push(new Hazard(bx,rand(360,710),48,48,{type:'saw',damage:35,moving:true,mx1:bx+200,msp:2}));}
-  cp.push(new Checkpoint(1700,500));cp.push(new Checkpoint(3500,300));
-  return mkLv({platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:60,spawnY:700,goalX:5500,goalY:200,par:80,bg1:'#050010',bg2:'#0a0020'});
-}
-
-function lv6(){const p=[],h=[],c=[],cp=[];
-  for(let x=0;x<5500;x+=200){p.push(new Platform(x,rand(600,730),rand(100,220),18,{depth:10}));
-    if(x>500)p.push(new Platform(x+60,rand(80,200),rand(80,160),14,{oneWay:true,depth:8}));}
-  for(let i=0;i<18;i++){const bx=300+i*300,by=rand(340,570);
-    p.push(new Platform(bx,by,90,14,{type:'disappear',visPer:80+i*5,visOn:50,depth:6}));
-    c.push(new Coin(bx+30,by-30,{value:150}));}
-  for(let i=0;i<10;i++){const bx=3000+i*240,by=rand(400,600);
-    p.push(new Platform(bx,by,140,16,{type:'crumble',depth:10}));}
-  for(let x=200;x<5400;x+=350)h.push(new Hazard(x,740,rand(60,120),18));
-  cp.push(new Checkpoint(1800,560));cp.push(new Checkpoint(3500,430));
-  return mkLv({platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:60,spawnY:600,goalX:5400,goalY:280,par:120,bg1:'#030411',bg2:'#06082a'});
-}
-
-function lv7(){const p=[],h=[],c=[],cp=[];
-  p.push(new Platform(0,720,6000,60,{depth:20}));
-  p.push(new Platform(0,0,20,720));p.push(new Platform(5980,0,20,720));
-  for(let i=0;i<18;i++){const bx=200+i*320,by=rand(360,620);
-    p.push(new Platform(bx,by,rand(80,160),16,{type:['normal','crumble','disappear','bounce'][i%4],depth:10}));
-    c.push(new Coin(bx+40,by-35,{value:200}));}
-  for(let i=0;i<22;i++){const bx=120+i*260;
-    h.push(new Hazard(bx,rand(510,700),48,48,{type:'saw',damage:40,moving:true,mx1:bx+180,msp:2+i*.1}));}
-  for(let x=100;x<5900;x+=280)h.push(new Hazard(x,700,18,20,{type:'spike',damage:25}));
-  cp.push(new Checkpoint(1500,640));cp.push(new Checkpoint(3000,580));cp.push(new Checkpoint(4500,520));
-  return mkLv({platforms:p,hazards:h,coins:c,cps:cp,
-    spawnX:80,spawnY:640,goalX:5800,goalY:600,par:150,bg1:'#0f0008',bg2:'#1a000f'});
-}
-
-// ══════════════════════════════════════════════════════════
-//  GAME STATE & LOOP
-// ══════════════════════════════════════════════════════════
-let gState='menu'; // menu | playing | paused | dead | complete
-let lvId=0,lv=null,player=null,goal=null,gStart=0,frame=0;
-
-function elapsed(){const s=Math.floor((Date.now()-gStart)/1000);return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
-
-function startLevel(id){
-  lvId=id;lv=buildLevel(id);
-  player=new Player(lv.spawnX,lv.spawnY);
-  goal=new GoalFlag(lv.goalX,lv.goalY);
-  PFX.length=0;
-  cam.x=player.x-canvas.width/2;cam.y=player.y-canvas.height/2;
-  cam.tx=cam.x;cam.ty=cam.y;
-  gStart=Date.now();
-  if(id>SD.currentLevel)SD.currentLevel=id;saveGame();
-  showScreen('gameScreen');gState='playing';
-}
-
-// ── Background stars ──────────────────────────────────────
-const bgStars=[];
-for(let i=0;i<140;i++)bgStars.push({x:Math.random()*4000,y:Math.random()*900,r:Math.random()*1.8+.3,sp:Math.random()*.4+.1,bl:Math.random()*Math.PI*2});
-
-function drawMenuBg(){
-  const bc=document.getElementById('bgCanvas');
-  const bx=bc.getContext('2d');
-  bc.width=window.innerWidth;bc.height=window.innerHeight;
-  const g=bx.createLinearGradient(0,0,0,bc.height);
-  g.addColorStop(0,'#050811');g.addColorStop(1,'#0a1628');
-  bx.fillStyle=g;bx.fillRect(0,0,bc.width,bc.height);
-  bgStars.forEach(s=>{s.bl+=.015;s.x-=s.sp;if(s.x<0)s.x=bc.width;
-    bx.globalAlpha=.3+Math.sin(s.bl)*.45;bx.fillStyle='#aaddff';
-    bx.beginPath();bx.arc(s.x,s.y,s.r,0,Math.PI*2);bx.fill();});
-  bx.globalAlpha=1;
-  bx.strokeStyle='rgba(0,245,255,.03)';bx.lineWidth=1;
-  for(let x=0;x<bc.width;x+=60){bx.beginPath();bx.moveTo(x,0);bx.lineTo(x,bc.height);bx.stroke();}
-  for(let y=0;y<bc.height;y+=60){bx.beginPath();bx.moveTo(0,y);bx.lineTo(bc.width,y);bx.stroke();}
-}
-
-function drawBG(){
-  const g=ctx.createLinearGradient(0,0,0,canvas.height);
-  g.addColorStop(0,lv.bg1);g.addColorStop(1,lv.bg2);
-  ctx.fillStyle=g;ctx.fillRect(0,0,canvas.width,canvas.height);
-  // grid
-  ctx.strokeStyle='rgba(0,245,255,.025)';ctx.lineWidth=1;
-  const gs=80,sx=Math.floor(cam.x/gs)*gs,sy=Math.floor(cam.y/gs)*gs;
-  for(let x=sx;x<cam.x+canvas.width+gs;x+=gs){ctx.beginPath();ctx.moveTo(x-cam.x+cam.sx,0);ctx.lineTo(x-cam.x+cam.sx,canvas.height);ctx.stroke();}
-  for(let y=sy;y<cam.y+canvas.height+gs;y+=gs){ctx.beginPath();ctx.moveTo(0,y-cam.y+cam.sy);ctx.lineTo(canvas.width,y-cam.y+cam.sy);ctx.stroke();}
-}
-
-function updateHUD(){
-  if(!player)return;
-  document.getElementById('hScore').textContent=player.score;
-  document.getElementById('hBest').textContent=SD.bestScore;
-  document.getElementById('hLevel').textContent=lvId+1;
-  document.getElementById('hDeaths').textContent=player.deaths;
-  document.getElementById('hTime').textContent=elapsed();
-  const pct=clamp(Math.round(player.x/lv.goalX*100),0,100);
-  document.getElementById('pBar').style.width=pct+'%';
-  document.getElementById('pPct').textContent=pct+'%';
-  const hp=clamp(player.health,0,player.maxHp);
-  document.getElementById('hpBar').style.width=(hp/player.maxHp*100)+'%';
-  document.getElementById('hpVal').textContent=Math.ceil(hp);
-  document.getElementById('abjump').className='abil'+(player.jumpsLeft===0?' cd':' ready');
-  document.getElementById('abdash').className='abil'+(player.dashLeft===0&&player.dashCD>0?' cd':' ready');
-  const cw=document.getElementById('comboWrap');
-  if(player.combo>1){cw.classList.remove('hidden');
-    document.getElementById('comboTxt').textContent=`COMBO x${player.combo}`;
-    document.getElementById('cbBar').style.width=(player.comboT/120*100)+'%';
-  }else cw.classList.add('hidden');
-}
-
-function showNotif(txt){
-  const a=document.getElementById('notifArea');
-  const el=document.createElement('div');el.className='notif';el.textContent=txt;
-  a.appendChild(el);setTimeout(()=>el.remove(),2200);
-}
-
-function showScreen(id){
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-}
-
-function showDeathScreen(){
-  document.getElementById('deathScreen').classList.remove('hidden');
-  document.getElementById('dScore').textContent=player.score;
-  document.getElementById('dDist').textContent=player.dist+'m';
-  document.getElementById('dTime').textContent=elapsed();
-}
-
-function showCompleteScreen(){
-  const s=Math.floor((Date.now()-gStart)/1000),deaths=player.deaths,par=lv.par;
-  let stars=1;if(s<=par&&deaths===0)stars=3;else if(s<=par*1.5&&deaths<=2)stars=2;
-  document.getElementById('cScore').textContent=player.score;
-  document.getElementById('cTime').textContent=elapsed();
-  document.getElementById('cDeaths').textContent=deaths;
-  document.getElementById('cStars').textContent='⭐'.repeat(stars)+'☆'.repeat(3-stars);
-  document.getElementById('cStarsEmoji').textContent='⭐'.repeat(stars);
-  if(!SD.levelsCompleted.includes(lvId))SD.levelsCompleted.push(lvId);
-  if(!SD.levelStars[lvId]||SD.levelStars[lvId]<stars)SD.levelStars[lvId]=stars;
-  saveGame();document.getElementById('completeScreen').classList.remove('hidden');
-}
-
-function returnMenu(){
-  gState='menu';showScreen('menuScreen');
-  ['pauseMenu','deathScreen','completeScreen'].forEach(id=>document.getElementById(id).classList.add('hidden'));
-  updateMenuStats();
-}
-
-function updateMenuStats(){
-  document.getElementById('mBest').textContent=SD.bestScore;
-  document.getElementById('mDeaths').textContent=SD.deaths;
-  document.getElementById('mLevel').textContent=(SD.currentLevel||0)+1;
-}
-
-function togglePause(){
-  if(gState==='playing'){gState='paused';document.getElementById('pauseMenu').classList.remove('hidden');}
-  else if(gState==='paused'){gState='playing';document.getElementById('pauseMenu').classList.add('hidden');}
-}
-
-function respawn(){
-  if(!player)return;
-  player.respawn();gState='playing';
+  document.getElementById('hLvName').textContent = `SEVİYE ${id+1}: ${lv.name}`;
   document.getElementById('deathScreen').classList.add('hidden');
+  document.getElementById('winScreen').classList.add('hidden');
+  notif(`🏁 ${lv.name} BAŞLIYOR!`);
 }
 
-// ── MAIN LOOP ─────────────────────────────────────────────
-function loop(){
-  requestAnimationFrame(loop);frame++;
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+// ══════════════════════════════════════════════════
+//  UI FUNCTIONS
+// ══════════════════════════════════════════════════
+function showDeath() {
+  if (!player.dead) return;
+  saveData.deaths++; save();
+  document.getElementById('deathScreen').classList.remove('hidden');
+  document.getElementById('dMsg').textContent = player.pos.y < -14 ? 'Düşüp öldün! 😱' : 'Lav seni yaktı! 🔥';
+  document.getElementById('blocker').classList.add('hidden');
+  if (document.exitPointerLock) document.exitPointerLock();
+}
 
-  if(gState==='menu'){drawMenuBg();clearJP();return;}
-  if(gState!=='playing'&&gState!=='paused'){clearJP();return;}
+function showWin() {
+  const elapsed = Math.floor((Date.now() - gameStartTime) / 1000);
+  const mins = Math.floor(elapsed / 60), secs = elapsed % 60;
+  const timeStr = `${mins}:${String(secs).padStart(2,'0')}`;
+  if (saveData.unlocked <= currentLevel) { saveData.unlocked = currentLevel + 1; save(); }
+  document.getElementById('winScreen').classList.remove('hidden');
+  document.getElementById('wStats').innerHTML = `
+    <div><span>SKOR</span><span>${player.score}</span></div>
+    <div><span>SÜRE</span><span>${timeStr}</span></div>
+    <div><span>ÖLÜMLER</span><span>${player.deaths}</span></div>
+    <div><span>EN İYİ</span><span>${saveData.best}</span></div>`;
+  if (document.exitPointerLock) document.exitPointerLock();
+}
 
-  if(gState==='playing'){
-    // Update platforms
-    lv.platforms.forEach(p=>{
-      p.update(player);
-      if(p.type==='crumble'&&p.isStoodOn(player))p.startCrumble();
-      if(p.type==='bounce'&&p.isStoodOn(player)&&player.vy>=0){
-        player.vy=-21;player.onGround=false;
-        burst(player.cx,player.bottom,12,{color:'#7fff00',s0:2,s1:6});cam.shake(5,8);}
-      if(p.type==='ice'&&p.isStoodOn(player))player.vx*=1.02;
-    });
-    lv.hazards.forEach(h=>h.update());
-    lv.coins.forEach(c=>c.update());
-    lv.cps.forEach(cp=>cp.update());
-    goal.update(player);
-    player.update(lv.platforms,lv.hazards,lv.coins,lv.cps,lv.width,lv.height);
-    updatePFX();
-    cam.update(player);
-    cam.x=clamp(cam.x,-60,lv.width-canvas.width+60);
-    cam.y=clamp(cam.y,-100,lv.height-canvas.height+200);
+function updateHUD() {
+  document.getElementById('hScore').textContent = player.score;
+  document.getElementById('hDeaths').textContent = player.deaths;
+  const hp = clamp(player.health, 0, player.maxHp);
+  document.getElementById('hHp').style.width = (hp / player.maxHp * 100) + '%';
+  document.getElementById('hHpNum').textContent = Math.ceil(hp);
+  // Progress
+  if (goal) {
+    const dist = Math.sqrt((player.pos.x-goal.x)**2 + (player.pos.z-goal.z)**2);
+    const startDist = 200; // approx
+    const pct = clamp(100 - (dist / startDist * 100), 0, 100);
+    document.getElementById('hPbar').style.width = pct + '%';
+  }
+  // Ability indicators
+  document.getElementById('aJump').className = 'abil' + (player.jumpsLeft === 0 ? ' cd' : '');
+}
 
-    if(player.dead){gState='dead';setTimeout(showDeathScreen,650);}
-    if(goal.reached){gState='complete';sfxWin();setTimeout(showCompleteScreen,500);
-      burst(goal.x+14,goal.y+38,28,{color:'#7fff00',s0:4,s1:13});}
-    if(jp['Escape']||jp['KeyP'])togglePause();
-    if(jp['KeyR'])respawn();
+// ── Event Listeners ───────────────────────────────
+document.getElementById('bRespawn').onclick = () => { respawn(); canvas.requestPointerLock(); };
+document.getElementById('bMenu').onclick = () => {
+  document.getElementById('deathScreen').classList.add('hidden');
+  document.getElementById('blocker').classList.remove('hidden');
+  if (document.exitPointerLock) document.exitPointerLock();
+};
+document.getElementById('bNext').onclick = () => {
+  loadLevel((currentLevel + 1) % LEVELS.length);
+  canvas.requestPointerLock();
+};
+document.getElementById('bMenuW').onclick = () => {
+  document.getElementById('winScreen').classList.add('hidden');
+  document.getElementById('blocker').classList.remove('hidden');
+};
 
-    updateHUD();
+// ══════════════════════════════════════════════════
+//  MAIN GAME LOOP
+// ══════════════════════════════════════════════════
+let lastTime = 0;
+let frame = 0;
+
+function animate(ts) {
+  requestAnimationFrame(animate);
+  const dt = Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+  frame++;
+
+  // Update moving platforms
+  movingPlatforms.forEach(mp => {
+    mp.t += mp.dir * mp.speed * dt;
+    if (mp.t >= 1) { mp.t = 1; mp.dir = -1; }
+    if (mp.t <= 0) { mp.t = 0; mp.dir = 1; }
+    const t2 = 3*mp.t*mp.t - 2*mp.t*mp.t*mp.t;
+    const nx = mp.startPos.x + (mp.endPos.x - mp.startPos.x) * t2;
+    const ny = mp.startPos.y + (mp.endPos.y - mp.startPos.y) * t2;
+    const nz = mp.startPos.z + (mp.endPos.z - mp.startPos.z) * t2;
+    mp.obj.mesh.position.set(nx, ny, nz);
+    mp.obj.x = nx; mp.obj.y = ny; mp.obj.z = nz;
+  });
+
+  // Animate coins
+  coins.forEach(c => {
+    if (!c.collected) {
+      c.mesh.rotation.y += dt * 1.8;
+      c.mesh.position.y = c.y + Math.sin(ts * 0.002 + c.x) * 0.25;
+    }
+  });
+
+  // Animate checkpoints
+  checkpoints.forEach(cp => {
+    cp.mesh.rotation.y += dt * 1.2;
+    if (cp.activated) {
+      cp.mesh.material.color.setHex(0xffd700);
+      cp.mesh.material.emissive.setHex(0x443300);
+    }
+  });
+
+  // Animate goal
+  if (goal) {
+    goal.mesh.rotation.z += dt * 1.5;
+    goal.mesh.children[0].rotation.x += dt * 2;
+    const gScale = 1 + Math.sin(ts * 0.003) * 0.08;
+    goal.mesh.scale.setScalar(gScale);
   }
 
-  // Draw
-  drawBG();
-  cam.on();
-  lv.platforms.forEach(p=>p.draw(ctx));
-  lv.cps.forEach(cp=>cp.draw(ctx));
-  goal.draw(ctx);
-  lv.hazards.forEach(h=>h.draw(ctx));
-  lv.coins.forEach(c=>c.draw(ctx));
-  drawPFX();
-  player.draw(ctx);
-  cam.off();
+  // Player physics
+  if (locked && !player.dead) {
+    resolvePhysics(dt);
+    // R key = respawn
+    if (jp['KeyR']) respawn();
+  }
 
+  updateHUD();
   clearJP();
+
+  renderer.render(scene, camera);
 }
 
-// ── LEVEL GRID ────────────────────────────────────────────
-function buildLevelGrid(){
-  const g=document.getElementById('levelGrid');g.innerHTML='';
-  LEVEL_META.forEach((m,i)=>{
-    const unlocked=i===0||SD.levelsCompleted.includes(i-1)||SD.currentLevel>=i;
-    const done=SD.levelsCompleted.includes(i);
-    const stars=SD.levelStars[i]||0;
-    const c=document.createElement('div');
-    c.className='lcard'+(done?' done':'')+(unlocked?'':' locked');
-    c.innerHTML=`<div style="font-size:2rem">${m.emoji}</div>
-<div class="lnum">${i+1}</div><div class="lname">${m.name}</div>
-<div class="lstars">${'⭐'.repeat(stars)}${'☆'.repeat(3-stars)}</div>
-<div class="ldiff d-${m.diff}">${m.diff.toUpperCase()}</div>`;
-    if(unlocked)c.addEventListener('click',()=>startLevel(i));
-    g.appendChild(c);
-  });
-}
-
-// ── EVENTS ────────────────────────────────────────────────
-document.getElementById('btnPlay').onclick=()=>startLevel(SD.currentLevel||0);
-document.getElementById('btnLevels').onclick=()=>{buildLevelGrid();showScreen('levelScreen');};
-document.getElementById('btnControls').onclick=()=>showScreen('controlsScreen');
-document.getElementById('bkLevels').onclick=()=>showScreen('menuScreen');
-document.getElementById('bkControls').onclick=()=>showScreen('menuScreen');
-document.getElementById('btnPause').onclick=togglePause;
-document.getElementById('bResume').onclick=togglePause;
-document.getElementById('bRestart').onclick=()=>{document.getElementById('pauseMenu').classList.add('hidden');startLevel(lvId);};
-document.getElementById('bMenuP').onclick=returnMenu;
-document.getElementById('bRespawn').onclick=respawn;
-document.getElementById('bMenuD').onclick=returnMenu;
-document.getElementById('bNext').onclick=()=>{document.getElementById('completeScreen').classList.add('hidden');startLevel((lvId+1)%LEVEL_META.length);};
-document.getElementById('bReplay').onclick=()=>{document.getElementById('completeScreen').classList.add('hidden');startLevel(lvId);};
-document.getElementById('bMenuC').onclick=returnMenu;
-
-// ── INIT ──────────────────────────────────────────────────
-updateMenuStats();
-requestAnimationFrame(loop);
+// ── Start ─────────────────────────────────────────
+loadLevel(0);
+animate(0);
