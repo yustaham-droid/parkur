@@ -7,19 +7,24 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- BLOCKER / MENU -->
+<!-- MENU -->
 <div id="blocker">
-  <div id="instructions">
-    <h1>PARKOUR 3D</h1>
-    <p>Roblox Tarzı First-Person</p>
-    <div class="key-hints">
-      <span><kbd>W A S D</kbd> Hareket</span>
-      <span><kbd>SPACE</kbd> Zıpla / Çift Zıpla</span>
-      <span><kbd>SHIFT</kbd> Sprint</span>
-      <span><kbd>R</kbd> Yeniden Başla (her zaman)</span>
+  <div id="menuWrap">
+    <canvas id="menuChar"></canvas>
+    <div id="instructions">
+      <h1>PARKOUR <span>3D</span></h1>
+      <p>ROBLOX STYLE FIRST-PERSON</p>
+      <div class="coin-bar"><span>🪙</span><b id="mCoins">0</b></div>
+      <div class="menu-btns">
+        <button id="btnPlay">▶ OYNA</button>
+        <button id="btnMarket" class="mbtn-gold">🛒 MARKET</button>
+        <button id="btnPP" class="mbtn-pp">⚡ PARKOUR PLUS</button>
+      </div>
+      <div class="key-hints">
+        <span><kbd>WASD</kbd> Hareket · <kbd>SPACE</kbd> Zıpla · <kbd>SHIFT</kbd> Sprint</span>
+        <span><kbd>V</kbd> Kamera · <kbd>R</kbd> Yeniden Başla</span>
+      </div>
     </div>
-    <button id="btnStart">▶ TIKLA VE OYNA</button>
-    <button id="btnParkourPlus" class="gbtn-plus">⚡ PARKOUR PLUS<span id="ppStatus">KİLİTLİ</span></button>
   </div>
 </div>
 
@@ -32,70 +37,109 @@
       <div class="lvname" id="hLvName">SEVİYE 1</div>
       <div class="pbar-wrap"><div class="pbar" id="hPbar"></div></div>
     </div>
-    <div class="hitem right"><span>ÖLÜM</span><b id="hDeaths">0</b></div>
+    <div class="hitem right">
+      <span>🪙</span><b id="hCoins" style="color:#ffd700">0</b>
+      <span style="margin-left:8px">ÖLÜM</span><b id="hDeaths">0</b>
+    </div>
   </div>
   <div id="hud-bot">
     <div class="hp-wrap"><span>HP</span><div class="hp-bg"><div class="hp-fill" id="hHp"></div></div><b id="hHpNum">100</b></div>
     <div id="abilRow">
-      <div class="abil" id="aJump"><div>↑↑</div><small>ZIPL</small></div>
-      <div class="abil pp-abil hidden" id="aWall"><div>⟳</div><small>DUVAR</small></div>
-      <div class="pp-badge hidden" id="ppBadge">⚡ PLUS</div>
+      <div class="abil" id="aJump">↑↑<small>ZIPL</small></div>
+      <div class="abil pp-abil hidden" id="aWall">⟳<small>DUVAR</small></div>
+      <div class="cam-badge" id="camBadge">📷 3P</div>
     </div>
   </div>
+  <div id="ppBar" class="hidden">⚡ PARKOUR PLUS AKTİF 👑</div>
 </div>
-
 <div id="notifArea"></div>
+<button id="hudMarket" class="hud-mkt">🛒</button>
 
-<!-- Death Screen -->
+<!-- DEATH -->
 <div id="deathScreen" class="overlay hidden">
   <div class="obox">
-    <div style="font-size:3rem">💀</div>
-    <h2>ÖLDÜN!</h2>
+    <div class="big-ico">💀</div><h2>ÖLDÜN!</h2>
     <p id="dMsg">Düştün!</p>
+    <div class="reward-row"><span>+<b id="dReward">10</b> 🪙 aldın</span></div>
     <button class="gbtn" id="bRespawn">♻ YENİDEN DEN</button>
     <button class="gbtn sec" id="bMenu">MENÜ</button>
-    <p style="font-size:.65rem;color:rgba(255,255,255,.3);margin-top:8px">veya klavyede <kbd style="font-size:.6rem">R</kbd></p>
   </div>
 </div>
 
-<!-- Win Screen -->
+<!-- WIN -->
 <div id="winScreen" class="overlay hidden">
   <div class="obox win">
-    <div style="font-size:3rem">🏆</div>
-    <h2>TAMAMLANDI!</h2>
+    <div class="big-ico">🏆</div><h2>TAMAMLANDI!</h2>
     <div id="wStats"></div>
-    <button class="gbtn" id="bNext">SONRAKİ SEVİYE →</button>
+    <div class="reward-row big"><span>+<b id="wReward">50</b> 🪙 kazandın!</span></div>
+    <button class="gbtn" id="bNext">SONRAKİ →</button>
     <button class="gbtn sec" id="bReplay">TEKRAR</button>
     <button class="gbtn sec" id="bMenuW">MENÜ</button>
   </div>
 </div>
 
-<!-- PARKOUR PLUS QUIZ SCREEN -->
-<div id="quizScreen" class="overlay hidden">
-  <div class="obox quiz-box">
-    <div class="quiz-header">
-      <span class="quiz-icon">⚡</span>
-      <h2>PARKOUR PLUS TESTİ</h2>
-      <p>5 sorudan 4'ünü doğru cevapla!</p>
+<!-- PP CHALLENGE -->
+<div id="ppChallenge" class="overlay hidden">
+  <div class="obox pp-chal">
+    <div class="big-ico">⚡</div>
+    <h2>PARKOUR PLUS GÖREVI</h2>
+    <p>Özel parkur pistini <b>60 saniyede</b> tamamla!</p>
+    <div class="pp-rewards">
+      <div class="ppr">👑 VIP King Kostüm</div>
+      <div class="ppr">↑↑↑ Üçlü Zıplama</div>
+      <div class="ppr">⟳ Duvar Koşusu</div>
+      <div class="ppr">🌈 Gökkuşağı Trail</div>
+      <div class="ppr">⚡ Hız Artışı</div>
     </div>
-    <div class="quiz-progress-wrap">
-      <div class="quiz-progress" id="quizProg"></div>
+    <button class="gbtn" id="bStartPP">🏃 GÖREVE BAŞLA</button>
+    <button class="gbtn sec" id="bCancelPP">GERİ</button>
+  </div>
+</div>
+
+<!-- PP WIN -->
+<div id="ppWinScreen" class="overlay hidden">
+  <div class="obox pp-win">
+    <div class="crown-anim">👑</div>
+    <h2>PARKOUR PLUS AÇILDI!</h2>
+    <p>VIP King kostümü koleksiyonuna eklendi!</p>
+    <div class="pp-rewards">
+      <div class="ppr unlocked">👑 VIP King Kostüm ✓</div>
+      <div class="ppr unlocked">↑↑↑ Üçlü Zıplama ✓</div>
+      <div class="ppr unlocked">⟳ Duvar Koşusu ✓</div>
+      <div class="ppr unlocked">🌈 Gökkuşağı Trail ✓</div>
     </div>
-    <div id="quizContent">
-      <!-- Filled by JS -->
+    <button class="gbtn" id="bPPWinOK">HARIKA! 🎉</button>
+  </div>
+</div>
+
+<!-- MARKET -->
+<div id="marketScreen" class="overlay hidden">
+  <div class="market-box">
+    <div class="mkt-head">
+      <h2>🛒 MARKET</h2>
+      <div class="mkt-coins">🪙 <b id="mktCoins">0</b></div>
+      <button class="close-btn" id="closeMarket">✕</button>
     </div>
-    <div id="quizResult" class="hidden">
-      <div id="quizResultIcon" style="font-size:3rem"></div>
-      <h3 id="quizResultTxt"></h3>
-      <p id="quizResultSub"></p>
-      <div id="quizFeatures" class="quiz-features hidden">
-        <div class="qf">↑↑↑ Üçlü Zıplama</div>
-        <div class="qf">⟳ Duvar Koşusu (2sn)</div>
-        <div class="qf">⚡ %50 Hız Artışı</div>
-        <div class="qf">🌈 Gökkuşağı Trail</div>
-      </div>
-      <button class="gbtn" id="quizClose">TAMAM</button>
+    <div class="mkt-tabs">
+      <button class="mtab active" data-tab="chars">🧍 KARAKTERler</button>
+      <button class="mtab" data-tab="boxes">📦 KUTULAR</button>
+      <button class="mtab" data-tab="inv">🎒 ENVANTERİM</button>
     </div>
+    <div id="mktContent"></div>
+  </div>
+</div>
+
+<!-- BOX OPENING -->
+<div id="boxOpenScreen" class="overlay hidden">
+  <div class="obox box-open">
+    <div id="boxAnim" class="box-anim">📦</div>
+    <div id="boxResult" class="hidden">
+      <div id="boxResultChar" class="box-char-preview"></div>
+      <h3 id="boxResultName"></h3>
+      <div id="boxResultRarity"></div>
+      <div id="boxResultStatus"></div>
+    </div>
+    <button class="gbtn hidden" id="bBoxClose">TAMAM</button>
   </div>
 </div>
 
