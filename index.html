@@ -1,275 +1,150 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PARKOUR NEXUS — Extreme Runner</title>
-    <meta name="description" content="Ultra-detailed web-based parkour game with physics, particles, and dynamic levels.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PARKOUR NEXUS 3D</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Menu Screen -->
-    <div id="menuScreen" class="screen active">
-        <div class="menu-bg">
-            <canvas id="bgCanvas"></canvas>
-        </div>
-        <div class="menu-content">
-            <div class="logo-container">
-                <div class="logo-glow"></div>
-                <h1 class="game-title">PARKOUR<br><span>NEXUS</span></h1>
-                <p class="game-subtitle">EXTREME RUNNER</p>
-            </div>
-            <div class="menu-buttons">
-                <button id="btnPlay" class="menu-btn primary">
-                    <span class="btn-icon">▶</span>
-                    <span>OYNA</span>
-                </button>
-                <button id="btnLevels" class="menu-btn">
-                    <span class="btn-icon">⊞</span>
-                    <span>SEVİYELER</span>
-                </button>
-                <button id="btnSettings" class="menu-btn">
-                    <span class="btn-icon">⚙</span>
-                    <span>AYARLAR</span>
-                </button>
-                <button id="btnControls" class="menu-btn">
-                    <span class="btn-icon">⌨</span>
-                    <span>KONTROLLER</span>
-                </button>
-            </div>
-            <div class="menu-stats">
-                <div class="stat-item">
-                    <span class="stat-label">EN İYİ SKOR</span>
-                    <span class="stat-value" id="menuBestScore">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">TOPLAM ÖLÜM</span>
-                    <span class="stat-value" id="menuDeaths">0</span>
-                </div>
-                <div class="stat-item">
-                    <span class="stat-label">SEVİYE</span>
-                    <span class="stat-value" id="menuLevel">1</span>
-                </div>
-            </div>
-        </div>
-        <div class="menu-footer">v2.0 | PARKOUR NEXUS</div>
+
+<!-- Menu -->
+<div id="menuScreen" class="screen active">
+  <canvas id="bgCanvas"></canvas>
+  <div class="menu-content">
+    <div class="logo-wrap">
+      <h1 class="game-title">PARKOUR<span>NEXUS</span></h1>
+      <p class="game-sub">3D EXTREME RUNNER</p>
     </div>
-
-    <!-- Level Select Screen -->
-    <div id="levelScreen" class="screen">
-        <div class="screen-header">
-            <button class="back-btn" id="btnBackFromLevels">← GERİ</button>
-            <h2>SEVİYE SEÇ</h2>
-        </div>
-        <div class="level-grid" id="levelGrid"></div>
+    <div class="menu-btns">
+      <button id="btnPlay"     class="mbtn primary">▶ OYNA</button>
+      <button id="btnLevels"   class="mbtn">⊞ SEVİYELER</button>
+      <button id="btnControls" class="mbtn">⌨ KONTROLLER</button>
     </div>
-
-    <!-- Controls Screen -->
-    <div id="controlsScreen" class="screen">
-        <div class="screen-header">
-            <button class="back-btn" id="btnBackFromControls">← GERİ</button>
-            <h2>KONTROLLER</h2>
-        </div>
-        <div class="controls-content">
-            <div class="control-group">
-                <h3>HAREKET</h3>
-                <div class="control-item"><kbd>A</kbd> / <kbd>←</kbd> <span>Sola Git</span></div>
-                <div class="control-item"><kbd>D</kbd> / <kbd>→</kbd> <span>Sağa Git</span></div>
-                <div class="control-item"><kbd>SPACE</kbd> / <kbd>W</kbd> / <kbd>↑</kbd> <span>Zıpla</span></div>
-                <div class="control-item"><kbd>SPACE</kbd> <span>Çift Zıplama (havada)</span></div>
-                <div class="control-item"><kbd>S</kbd> / <kbd>↓</kbd> <span>Çömel / Hızlı İniş</span></div>
-                <div class="control-item"><kbd>SHIFT</kbd> <span>Sprint (Koş)</span></div>
-            </div>
-            <div class="control-group">
-                <h3>ÖZEL HAREKETLER</h3>
-                <div class="control-item"><kbd>SPACE</kbd> <em>duvara değerken</em> <span>Duvar Zıplaması</span></div>
-                <div class="control-item"><kbd>SHIFT</kbd> <em>havada</em> <span>Hava Dash</span></div>
-                <div class="control-item"><kbd>S</kbd> <em>havada</em> <span>Yerçekimi Çarpması</span></div>
-                <div class="control-item"><kbd>R</kbd> <span>Yeniden Başla</span></div>
-                <div class="control-item"><kbd>ESC</kbd> <span>Duraklat / Menü</span></div>
-            </div>
-            <div class="control-group">
-                <h3>İPUÇLARI</h3>
-                <div class="tip-item">💡 Sprint yaparken zıpla — daha uzağa gidersin!</div>
-                <div class="tip-item">💡 Duvar yakınında zıpla — duvarda tırman!</div>
-                <div class="tip-item">💡 Çift zıplama ile uçurumlardaki engelleri aş.</div>
-                <div class="tip-item">💡 Kontrol noktalarını yakala — ölünce oradan başlarsın.</div>
-                <div class="tip-item">💡 Altın coinler bonus puan verir!</div>
-            </div>
-        </div>
+    <div class="menu-stats">
+      <div class="mstat"><span>EN İYİ</span><b id="mBest">0</b></div>
+      <div class="mstat"><span>ÖLÜM</span><b id="mDeaths">0</b></div>
+      <div class="mstat"><span>SEVİYE</span><b id="mLevel">1</b></div>
     </div>
+  </div>
+  <footer>v3.0 ROBLOX STYLE | PARKOUR NEXUS</footer>
+</div>
 
-    <!-- Settings Screen -->
-    <div id="settingsScreen" class="screen">
-        <div class="screen-header">
-            <button class="back-btn" id="btnBackFromSettings">← GERİ</button>
-            <h2>AYARLAR</h2>
-        </div>
-        <div class="settings-content">
-            <div class="setting-item">
-                <label>MÜZİK</label>
-                <div class="toggle-switch" id="toggleMusic" data-state="on">
-                    <div class="toggle-knob"></div>
-                </div>
-            </div>
-            <div class="setting-item">
-                <label>SES EFEKTLERİ</label>
-                <div class="toggle-switch" id="toggleSfx" data-state="on">
-                    <div class="toggle-knob"></div>
-                </div>
-            </div>
-            <div class="setting-item">
-                <label>PARTİKÜLLER</label>
-                <div class="toggle-switch" id="toggleParticles" data-state="on">
-                    <div class="toggle-knob"></div>
-                </div>
-            </div>
-            <div class="setting-item">
-                <label>KAMERA SALLANTISI</label>
-                <div class="toggle-switch" id="toggleShake" data-state="on">
-                    <div class="toggle-knob"></div>
-                </div>
-            </div>
-            <div class="setting-item">
-                <label>GRAFİK KALİTESİ</label>
-                <select id="qualitySelect" class="setting-select">
-                    <option value="low">DÜŞÜK</option>
-                    <option value="medium" selected>ORTA</option>
-                    <option value="high">YÜKSEK</option>
-                </select>
-            </div>
-            <div class="setting-item">
-                <label>SES SEVİYESİ</label>
-                <input type="range" id="volumeSlider" min="0" max="100" value="70" class="setting-slider">
-            </div>
-        </div>
+<!-- Level Select -->
+<div id="levelScreen" class="screen">
+  <div class="sheader"><button class="back-btn" id="bkLevels">← GERİ</button><h2>SEVİYE SEÇ</h2></div>
+  <div class="level-grid" id="levelGrid"></div>
+</div>
+
+<!-- Controls -->
+<div id="controlsScreen" class="screen">
+  <div class="sheader"><button class="back-btn" id="bkControls">← GERİ</button><h2>KONTROLLER</h2></div>
+  <div class="ctrl-grid">
+    <div class="ctrl-card"><h3>HAREKET</h3>
+      <div class="ci"><kbd>A / ←</kbd><span>Sola Git</span></div>
+      <div class="ci"><kbd>D / →</kbd><span>Sağa Git</span></div>
+      <div class="ci"><kbd>SPACE / W / ↑</kbd><span>Zıpla</span></div>
+      <div class="ci"><kbd>SPACE</kbd> <em>(havada)</em><span>Çift Zıplama</span></div>
+      <div class="ci"><kbd>SHIFT</kbd><span>Sprint</span></div>
+      <div class="ci"><kbd>S / ↓</kbd><span>Çömel / Hızlı Düşüş</span></div>
     </div>
-
-    <!-- Game Screen -->
-    <div id="gameScreen" class="screen">
-        <canvas id="gameCanvas"></canvas>
-
-        <!-- HUD -->
-        <div id="hud">
-            <div class="hud-top">
-                <div class="hud-left">
-                    <div class="hud-stat">
-                        <span class="hud-label">SKOR</span>
-                        <span class="hud-value" id="hudScore">0</span>
-                    </div>
-                    <div class="hud-stat">
-                        <span class="hud-label">EN İYİ</span>
-                        <span class="hud-value" id="hudBest">0</span>
-                    </div>
-                </div>
-                <div class="hud-center">
-                    <div class="level-badge">SEVİYE <span id="hudLevel">1</span></div>
-                    <div class="progress-bar-container">
-                        <div class="progress-bar" id="progressBar"></div>
-                        <span class="progress-label" id="progressLabel">0%</span>
-                    </div>
-                </div>
-                <div class="hud-right">
-                    <div class="hud-stat">
-                        <span class="hud-label">ÖLÜM</span>
-                        <span class="hud-value" id="hudDeaths">0</span>
-                    </div>
-                    <div class="hud-stat">
-                        <span class="hud-label">SÜRE</span>
-                        <span class="hud-value" id="hudTime">0:00</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Health Bar -->
-            <div class="health-container">
-                <span class="health-label">HP</span>
-                <div class="health-bar-bg">
-                    <div class="health-bar" id="healthBar"></div>
-                    <div class="health-shine"></div>
-                </div>
-                <span class="health-value" id="healthValue">100</span>
-            </div>
-
-            <!-- Ability indicators -->
-            <div class="ability-bar">
-                <div class="ability-item" id="abilityDoubleJump">
-                    <div class="ability-icon">↑↑</div>
-                    <div class="ability-label">ÇİFT ZIPL</div>
-                    <div class="ability-cooldown" id="cdDoubleJump"></div>
-                </div>
-                <div class="ability-item" id="abilityDash">
-                    <div class="ability-icon">→→</div>
-                    <div class="ability-label">DASH</div>
-                    <div class="ability-cooldown" id="cdDash"></div>
-                </div>
-                <div class="ability-item" id="abilityWallJump">
-                    <div class="ability-icon">⟳</div>
-                    <div class="ability-label">DUVAR</div>
-                    <div class="ability-cooldown" id="cdWallJump"></div>
-                </div>
-            </div>
-
-            <!-- Combo display -->
-            <div id="comboDisplay" class="combo-display hidden">
-                <div class="combo-text" id="comboText">COMBO x1</div>
-                <div class="combo-bar-bg">
-                    <div class="combo-bar" id="comboBar"></div>
-                </div>
-            </div>
-
-            <button id="btnPause" class="pause-btn">⏸</button>
-        </div>
-
-        <!-- Pause Menu -->
-        <div id="pauseMenu" class="overlay hidden">
-            <div class="overlay-box">
-                <h2>DURAKLATILDI</h2>
-                <button id="btnResume" class="menu-btn primary">DEVAM ET</button>
-                <button id="btnRestart" class="menu-btn">YENİDEN BAŞLA</button>
-                <button id="btnMenuFromGame" class="menu-btn">ANA MENÜ</button>
-            </div>
-        </div>
-
-        <!-- Death Screen -->
-        <div id="deathScreen" class="overlay hidden">
-            <div class="overlay-box death-box">
-                <div class="death-icon">💀</div>
-                <h2>ÖLDÜN!</h2>
-                <div class="death-stats">
-                    <div class="death-stat"><span>SKOR</span><span id="deathScore">0</span></div>
-                    <div class="death-stat"><span>MESAFE</span><span id="deathDistance">0m</span></div>
-                    <div class="death-stat"><span>SÜRE</span><span id="deathTime">0:00</span></div>
-                </div>
-                <button id="btnRespawn" class="menu-btn primary">YENİDEN DEN <span style="font-size:0.7em">(R)</span></button>
-                <button id="btnMenuFromDeath" class="menu-btn">ANA MENÜ</button>
-            </div>
-        </div>
-
-        <!-- Level Complete Screen -->
-        <div id="levelComplete" class="overlay hidden">
-            <div class="overlay-box complete-box">
-                <div class="complete-stars" id="completeStars"></div>
-                <h2>SEVİYE TAMAMLANDI!</h2>
-                <div class="complete-stats">
-                    <div class="complete-stat"><span>SKOR</span><span id="completScore">0</span></div>
-                    <div class="complete-stat"><span>SÜRE</span><span id="completeTime">0:00</span></div>
-                    <div class="complete-stat"><span>ÖLÜMLER</span><span id="completeDeaths">0</span></div>
-                    <div class="complete-stat"><span>YILDIZLAR</span><span id="completeStarCount">⭐⭐⭐</span></div>
-                </div>
-                <button id="btnNextLevel" class="menu-btn primary">SONRAKİ SEVİYE →</button>
-                <button id="btnReplayLevel" class="menu-btn">TEKRAR OYNA</button>
-                <button id="btnMenuFromComplete" class="menu-btn">ANA MENÜ</button>
-            </div>
-        </div>
-
-        <!-- Notification toasts -->
-        <div id="notificationArea"></div>
+    <div class="ctrl-card"><h3>ÖZEL</h3>
+      <div class="ci"><kbd>SHIFT</kbd> <em>(havada)</em><span>Hava Dash</span></div>
+      <div class="ci"><kbd>SPACE</kbd> <em>(duvarda)</em><span>Duvar Zıplaması</span></div>
+      <div class="ci"><kbd>R</kbd><span>Yeniden Başla</span></div>
+      <div class="ci"><kbd>ESC</kbd><span>Duraklat</span></div>
     </div>
+    <div class="ctrl-card"><h3>İPUÇLARI</h3>
+      <div class="tip">💡 Sprint + Zıplama = Daha uzak atlama!</div>
+      <div class="tip">💡 Duvara dokunurken zıpla = Duvar Atlaması</div>
+      <div class="tip">💡 Çömel tuşu havada = Hızlı iniş</div>
+      <div class="tip">💡 Kontrol noktalarını yakala!</div>
+    </div>
+  </div>
+</div>
 
-    <script src="game.js"></script>
+<!-- Game -->
+<div id="gameScreen" class="screen">
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud">
+    <div class="hud-top">
+      <div class="hside">
+        <div class="hstat"><span>SKOR</span><b id="hScore">0</b></div>
+        <div class="hstat"><span>EN İYİ</span><b id="hBest">0</b></div>
+      </div>
+      <div class="hmid">
+        <div class="lvbadge">SEVİYE <span id="hLevel">1</span></div>
+        <div class="pbar-wrap"><div class="pbar" id="pBar"></div><span id="pPct">0%</span></div>
+      </div>
+      <div class="hside">
+        <div class="hstat"><span>ÖLÜM</span><b id="hDeaths">0</b></div>
+        <div class="hstat"><span>SÜRE</span><b id="hTime">0:00</b></div>
+      </div>
+    </div>
+    <div class="hp-row">
+      <span class="hplabel">HP</span>
+      <div class="hpbar-bg"><div class="hpbar" id="hpBar"></div></div>
+      <span id="hpVal">100</span>
+    </div>
+    <div class="abil-row">
+      <div class="abil" id="abjump"><div class="ai">↑↑</div><div class="al">ÇİFT</div></div>
+      <div class="abil" id="abdash"><div class="ai">»»</div><div class="al">DASH</div></div>
+      <div class="abil" id="abwall"><div class="ai">⟳</div><div class="al">DUVAR</div></div>
+    </div>
+    <div id="comboWrap" class="combo-wrap hidden">
+      <span id="comboTxt">COMBO x1</span>
+      <div class="cbbar-bg"><div class="cbbar" id="cbBar"></div></div>
+    </div>
+    <button id="btnPause" class="pbtn">⏸</button>
+  </div>
+
+  <div id="notifArea"></div>
+
+  <!-- Pause -->
+  <div id="pauseMenu" class="overlay hidden">
+    <div class="obox">
+      <h2>DURAKLATILDI</h2>
+      <button id="bResume"  class="mbtn primary">DEVAM ET</button>
+      <button id="bRestart" class="mbtn">YENİDEN BAŞLA</button>
+      <button id="bMenuP"   class="mbtn">ANA MENÜ</button>
+    </div>
+  </div>
+
+  <!-- Death -->
+  <div id="deathScreen" class="overlay hidden">
+    <div class="obox dbox">
+      <div class="dico">💀</div>
+      <h2>ÖLDÜN!</h2>
+      <div class="dstats">
+        <div class="ds"><span>SKOR</span><span id="dScore">0</span></div>
+        <div class="ds"><span>MESAFE</span><span id="dDist">0m</span></div>
+        <div class="ds"><span>SÜRE</span><span id="dTime">0:00</span></div>
+      </div>
+      <button id="bRespawn" class="mbtn primary">YENİDEN DEN (R)</button>
+      <button id="bMenuD"   class="mbtn">ANA MENÜ</button>
+    </div>
+  </div>
+
+  <!-- Complete -->
+  <div id="completeScreen" class="overlay hidden">
+    <div class="obox cbox">
+      <div id="cStarsEmoji" class="cstars"></div>
+      <h2>TAMAMLANDI!</h2>
+      <div class="dstats">
+        <div class="ds"><span>SKOR</span><span id="cScore">0</span></div>
+        <div class="ds"><span>SÜRE</span><span id="cTime">0:00</span></div>
+        <div class="ds"><span>ÖLÜM</span><span id="cDeaths">0</span></div>
+        <div class="ds"><span>YILDIZ</span><span id="cStars">⭐⭐⭐</span></div>
+      </div>
+      <button id="bNext"    class="mbtn primary">SONRAKİ →</button>
+      <button id="bReplay"  class="mbtn">TEKRAR</button>
+      <button id="bMenuC"   class="mbtn">ANA MENÜ</button>
+    </div>
+  </div>
+</div>
+
+<script src="game.js"></script>
 </body>
 </html>
