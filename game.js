@@ -180,16 +180,11 @@ function addGoal(x, y, z) {
 }
 
 function clearWorld() {
-  [...platforms, ...coins.map(c => c.mesh), ...checkpoints.map(c => c.mesh)].forEach(obj => {
-    if (obj.mesh) scene.remove(obj.mesh); else scene.remove(obj);
-  });
-  // Remove all scene objects except lights
-  while (scene.children.length > 0) {
-    const obj = scene.children[0];
-    if (obj.isLight) { scene.children.splice(0, 1); continue; }
-    scene.remove(obj);
-  }
-  scene.add(ambient, sun, fill);
+  // Remove tracked world objects safely
+  platforms.forEach(p => { if (p.mesh) scene.remove(p.mesh); });
+  coins.forEach(c => { if (c.mesh) scene.remove(c.mesh); });
+  checkpoints.forEach(c => { if (c.mesh) scene.remove(c.mesh); });
+  if (goal && goal.mesh) scene.remove(goal.mesh);
   platforms = []; coins = []; checkpoints = []; goal = null;
   movingPlatforms = []; objects.length = 0; colorIdx = 0;
 }
@@ -536,9 +531,6 @@ const LEVELS = [
       addPlatform(0,0,0,10,1,10,0x88bbff);
       player.pos.set(0,3,0); player.cpPos.set(0,3,0);
       // Zigzag ice climb
-      let x=0,y=0,z=0;
-      const zigzag=[[4,1,10],[−4,2,20],[6,3,30],[−6,4,40],[4,5,50],[0,6,60]];
-      // Manual zigzag
       [[4,1,12,3,1,4],[-4,2,22,3,1,4],[6,3,32,3,1,4],[-6,4,42,3,1,4],
        [4,5,52,3,1,4],[0,6,62,5,1,5]].forEach(([px,py,pz,w,h,d]) => {
         addPlatform(px,py,pz,w,h,d,0x88ccff); addCoin(px,py+2,pz);
@@ -553,7 +545,7 @@ const LEVELS = [
       addPlatform(0,16,158,8,1,8,0x4466ff);
       addCheckpoint(0,16,158);
       // Vertical ice pillars to jump between
-      [[−5,16,170],[2,18,178],[−3,20,186],[4,22,194],[0,24,202]].forEach(([px,py,pz]) => {
+      [[-5,16,170],[2,18,178],[-3,20,186],[4,22,194],[0,24,202]].forEach(([px,py,pz]) => {
         addPlatform(px,py,pz,2,1,2,0x99ddff); addCoin(px,py+2,pz,75);
       });
       addPlatform(0,26,214,8,1,8,0xffffff);
