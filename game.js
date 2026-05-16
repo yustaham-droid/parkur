@@ -37,7 +37,12 @@ scene.add(fill);
 // ── Input ─────────────────────────────────────────
 const keys = {};
 const jp = {};
-window.addEventListener('keydown', e => { if (!keys[e.code]) jp[e.code] = true; keys[e.code] = true; });
+window.addEventListener('keydown', e => {
+  if (!keys[e.code]) jp[e.code] = true;
+  keys[e.code] = true;
+  // R key always works for respawn (no pointer lock needed)
+  if (e.code === 'KeyR') { respawn(); }
+});
 window.addEventListener('keyup',   e => { keys[e.code] = false; });
 function clearJP() { Object.keys(jp).forEach(k => delete jp[k]); }
 
@@ -82,9 +87,29 @@ const sfxWin    = () => { [440, 550, 660, 880, 1100].forEach((f, i) => setTimeou
 let currentLevel = 0, score = 0, deaths = 0;
 let gameStartTime = Date.now();
 const SAVE_KEY = 'pk3d_save';
-let saveData = { best: 0, deaths: 0, unlocked: 0 };
+let saveData = { best: 0, deaths: 0, unlocked: 0, ppUnlocked: false };
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) saveData = { ...saveData, ...s }; } catch(e) {}
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(saveData)); } catch(e) {} }
+
+// ── Parkour Plus ──────────────────────────────────
+let ppActive = saveData.ppUnlocked;
+function updatePPUI() {
+  const btn = document.getElementById('btnParkourPlus');
+  const st  = document.getElementById('ppStatus');
+  const badge = document.getElementById('ppBadge');
+  const wallAbil = document.getElementById('aWall');
+  if (saveData.ppUnlocked) {
+    btn.classList.add('unlocked');
+    st.textContent = ppActive ? 'AKTİF ✓' : 'KİLİTSİZ';
+    st.classList.toggle('on', ppActive);
+    badge.classList.toggle('hidden', !ppActive);
+    wallAbil.classList.toggle('hidden', !ppActive);
+  } else {
+    st.textContent = 'KİLİTLİ'; st.classList.remove('on');
+    badge.classList.add('hidden'); wallAbil.classList.add('hidden');
+  }
+}
+updatePPUI();
 
 // ── Notifications ─────────────────────────────────
 function notif(txt) {
@@ -192,7 +217,7 @@ function clearWorld() {
 // ══════════════════════════════════════════════════
 //  PLAYER PHYSICS (First-Person)
 // ══════════════════════════════════════════════════
-const PW = 0.4, PH = 1.85, PD = 0.4;  // player half-extents
+const PW = 0.38, PH = 1.8, PD = 0.38;
 const GRAVITY = -22;
 const JUMP_V  = 9.5;
 const WALK_SP = 5.5;
@@ -209,8 +234,12 @@ const player = {
   cpPos: new THREE.Vector3(0, 4, 0),
   score: 0, deaths: 0,
   startTime: Date.now(),
-  standingOn: null,   // reference to platform being stood on
-  prevPlatPos: null,  // for moving platform carry
+  standingOn: null,
+  prevPlatPos: null,
+  // Parkour Plus extras
+  wallRunTimer: 0,    // how long we can wall-run
+  wallRunActive: false,
+  trailTimer: 0,
 };
 
 // Walking camera bob
@@ -275,15 +304,40 @@ function resolvePhysics(dt) {
     if (hspd > spd * 1.5) { player.vel.x *= spd * 1.5 / hspd; player.vel.z *= spd * 1.5 / hspd; }
   }
 
-  // Jump
+  // PP speed boost
+  const ppSpd = (ppActive && saveData.ppUnlocked) ? 1.5 : 1;
+
+  // Jump (PP: triple jump)
+  const maxJumps = (ppActive && saveData.ppUnlocked) ? 3 : 2;
   if (jp['Space']) {
     if (player.jumpsLeft > 0) {
-      player.vel.y = JUMP_V + (player.jumpsLeft === 2 ? 0 : -1.5);
+      const isFirst = player.jumpsLeft === maxJumps;
+      player.vel.y = JUMP_V * (isFirst ? 1 : 0.85);
       player.onGround = false;
       player.jumpsLeft--;
       sfxJump();
-      if (player.jumpsLeft === 0) notif('ÇİFT ZIPL!');
+      if (player.jumpsLeft === 0 && maxJumps === 3) notif('⚡ ÜÇLÜ ZIPL!');
+      else if (player.jumpsLeft === 0) notif('ÇİFT ZIPL!');
     }
+  }
+
+  // Wall run (PP only): hold against wall + Sprint = slow fall
+  if (ppActive && saveData.ppUnlocked && !player.onGround && F && player.wallRunTimer > 0) {
+    const wallContact = objects.some(p => {
+      const pb = platAABB(p);
+      return (Math.abs(player.pos.x - pb.minX) < 0.6 || Math.abs(player.pos.x - pb.maxX) < 0.6 ||
+              Math.abs(player.pos.z - pb.minZ) < 0.6 || Math.abs(player.pos.z - pb.maxZ) < 0.6) &&
+             player.pos.y < pb.maxY && player.pos.y + PH > pb.minY;
+    });
+    if (wallContact) {
+      player.wallRunActive = true;
+      player.wallRunTimer -= dt;
+      if (player.vel.y < -0.5) player.vel.y = -0.5; // slow fall
+      player.jumpsLeft = Math.max(player.jumpsLeft, 1);
+    } else { player.wallRunActive = false; }
+  } else {
+    player.wallRunActive = false;
+    if (player.onGround) player.wallRunTimer = 2.0;
   }
 
   // Gravity
@@ -306,19 +360,19 @@ function resolvePhysics(dt) {
   const wasOnGround = player.onGround;
   player.onGround = false;
 
+  const maxJumps2 = (ppActive && saveData.ppUnlocked) ? 3 : 2;
   for (const p of objects) {
     if (!overlapAABB(playerAABB(), platAABB(p))) continue;
     const pb = platAABB(p);
-    if (player.vel.y <= 0 && player.pos.y >= pb.maxY - 0.15) {
-      // Land on top
+    if (player.vel.y <= 0 && player.pos.y >= pb.maxY - 0.25) {
       player.pos.y = pb.maxY;
       player.vel.y = 0;
       player.onGround = true;
-      player.jumpsLeft = 2;
+      player.jumpsLeft = maxJumps2;
+      player.wallRunTimer = 2.0;
       player.standingOn = p;
-      // Bounce
-      if (p.type === 'bounce') { player.vel.y = JUMP_V * 1.4; player.onGround = false; sfxJump(); }
-    } else if (player.vel.y > 0 && player.pos.y + PH <= pb.minY + 0.3) {
+      if (p.type === 'bounce') { player.vel.y = JUMP_V * 1.45; player.onGround = false; sfxJump(); notif('🟢 BOUNCE!'); }
+    } else if (player.vel.y > 0 && player.pos.y + PH <= pb.minY + 0.35) {
       player.pos.y = pb.minY - PH;
       player.vel.y = 0;
     }
@@ -395,6 +449,21 @@ function resolvePhysics(dt) {
     }
   }
 
+  // ── Rainbow trail (PP)
+  if (ppActive && saveData.ppUnlocked) {
+    player.trailTimer -= dt;
+    if (player.trailTimer <= 0) {
+      player.trailTimer = 0.04;
+      const hue = (Date.now() * 0.5) % 360;
+      const trailGeo = new THREE.SphereGeometry(0.12, 4, 4);
+      const trailMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(`hsl(${hue},100%,60%)`), transparent: true, opacity: 0.7 });
+      const trailMesh = new THREE.Mesh(trailGeo, trailMat);
+      trailMesh.position.copy(camera.position);
+      scene.add(trailMesh);
+      setTimeout(() => scene.remove(trailMesh), 350);
+    }
+  }
+
   // ── Camera update ─────────────────────────────────
   const hspd2 = Math.sqrt(player.vel.x**2 + player.vel.z**2);
   const isMoving = hspd2 > 0.3 && player.onGround;
@@ -410,21 +479,25 @@ function resolvePhysics(dt) {
   camera.rotation.x = pitch;
   camera.rotation.z = bobX;
 
-  // FOV sprint effect
-  const targetFOV = (keys['ShiftLeft'] || keys['ShiftRight']) && isMoving ? 88 : 75;
+  const targetFOV = (keys['ShiftLeft']||keys['ShiftRight'])&&isMoving ? (ppActive?92:88) : 75;
   camera.fov = lerp(camera.fov, targetFOV, 0.08);
   camera.updateProjectionMatrix();
 }
 
 function respawn() {
-  player.pos.copy(player.cpPos);
-  player.vel.set(0, 0, 0);
-  player.health = player.maxHp;
-  player.dead = false; player.invTimer = 1;
-  player.jumpsLeft = 2;
-  player.deaths++; deaths++;
-  document.getElementById('deathScreen').classList.add('hidden');
-  notif('♻ YENİDEN BAŞLADI');
+  if (player && !player._respawning) {
+    player._respawning = true;
+    setTimeout(() => { if(player) player._respawning = false; }, 500);
+    player.pos.set(player.cpPos.x, player.cpPos.y + 0.5, player.cpPos.z);
+    player.vel.set(0, 0, 0);
+    player.health = player.maxHp;
+    player.dead = false; player.invTimer = 1.5;
+    player.jumpsLeft = (ppActive && saveData.ppUnlocked) ? 3 : 2;
+    player.wallRunTimer = 2.0;
+    player.deaths++; deaths++;
+    document.getElementById('deathScreen').classList.add('hidden');
+    notif('♻ CHECKPOINT\'TEN YENİDEN');
+  }
 }
 
 // ══════════════════════════════════════════════════
@@ -455,10 +528,10 @@ const LEVELS = [
       [[0,13,116],[3,13,116],[-3,13,116]].forEach(([x,y,z]) => addCoin(x,y,z,100));
       addCheckpoint(0,12,128);
       addPlatform(0,12,130,10,1,10,0x8844ff);
-      // Tricky thin beams
-      addPlatform(0,12,142,1,1,8,0xff0000);
-      addPlatform(4,12,150,1,1,8,0xff0000);
-      addPlatform(-2,12,158,1,1,8,0xff0000);
+      // Beams (wider now)
+      addPlatform(0,12,142,1.8,1,6,0xff0000);
+      addPlatform(4,12,150,1.8,1,6,0xff0000);
+      addPlatform(-2,12,158,1.8,1,6,0xff0000);
       addPlatform(0,12,168,8,1,8,0x00ccff);
       addGoal(0,12,168);
     }
@@ -606,15 +679,16 @@ function updateHUD() {
   const hp = clamp(player.health, 0, player.maxHp);
   document.getElementById('hHp').style.width = (hp / player.maxHp * 100) + '%';
   document.getElementById('hHpNum').textContent = Math.ceil(hp);
-  // Progress
   if (goal) {
     const dist = Math.sqrt((player.pos.x-goal.x)**2 + (player.pos.z-goal.z)**2);
-    const startDist = 200; // approx
-    const pct = clamp(100 - (dist / startDist * 100), 0, 100);
+    const pct = clamp(100 - (dist / 220 * 100), 0, 100);
     document.getElementById('hPbar').style.width = pct + '%';
   }
-  // Ability indicators
   document.getElementById('aJump').className = 'abil' + (player.jumpsLeft === 0 ? ' cd' : '');
+  const wallEl = document.getElementById('aWall');
+  if (ppActive && saveData.ppUnlocked) {
+    wallEl.className = 'abil pp-abil' + (player.wallRunActive ? '' : (player.wallRunTimer < 0.1 ? ' cd' : ''));
+  }
 }
 
 // ── Event Listeners ───────────────────────────────
@@ -625,12 +699,79 @@ document.getElementById('bMenu').onclick = () => {
   if (document.exitPointerLock) document.exitPointerLock();
 };
 document.getElementById('bNext').onclick = () => {
+  document.getElementById('winScreen').classList.add('hidden');
   loadLevel((currentLevel + 1) % LEVELS.length);
+  canvas.requestPointerLock();
+};
+document.getElementById('bReplay').onclick = () => {
+  document.getElementById('winScreen').classList.add('hidden');
+  loadLevel(currentLevel);
   canvas.requestPointerLock();
 };
 document.getElementById('bMenuW').onclick = () => {
   document.getElementById('winScreen').classList.add('hidden');
   document.getElementById('blocker').classList.remove('hidden');
+  if (document.exitPointerLock) document.exitPointerLock();
+};
+
+// ── PARKOUR PLUS QUIZ ─────────────────────────────
+const QUIZ_Qs = [
+  { q:'Parkour hangi ülkede ortaya çıktı?', opts:['Fransa','Japonya','İngiltere','Brezilya'], ans:0 },
+  { q:'First-person oyunlarda kameraya ne denir?', opts:['FPS kamera','3rd person cam','Bird eye','Isometric'], ans:0 },
+  { q:'Bu oyunda double jump için hangi tuş kullanılır?', opts:['Shift','Space','Ctrl','Alt'], ans:1 },
+  { q:'Roblox\'ta temel oyun mekaniği ne üzerine kuruludur?', opts:['Blok yapı','Yarış','Savaş','Kart oyunu'], ans:0 },
+  { q:'Parkour Plus\'ın özel özelliği hangisi DEĞİLDİR?', opts:['Uçmak','Üçlü zıplama','Duvar koşusu','Gökkuşağı trail'], ans:0 },
+];
+let quizIdx = 0, quizScore = 0;
+function startQuiz() {
+  quizIdx = 0; quizScore = 0;
+  document.getElementById('quizResult').classList.add('hidden');
+  document.getElementById('quizContent').classList.remove('hidden');
+  document.getElementById('quizScreen').classList.remove('hidden');
+  showQuestion();
+}
+function showQuestion() {
+  document.getElementById('quizProg').style.width = (quizIdx / QUIZ_Qs.length * 100) + '%';
+  if (quizIdx >= QUIZ_Qs.length) { showQuizResult(); return; }
+  const qData = QUIZ_Qs[quizIdx];
+  document.getElementById('quizContent').innerHTML = `
+    <div class="quiz-q"><span>SORU ${quizIdx+1}/${QUIZ_Qs.length}</span>${qData.q}</div>
+    <div class="quiz-options">
+      ${qData.opts.map((o,i) => `<button class="qopt" onclick="answerQ(${i})">${o}</button>`).join('')}
+    </div>`;
+}
+window.answerQ = function(idx) {
+  const qData = QUIZ_Qs[quizIdx];
+  const btns = document.querySelectorAll('.qopt');
+  btns.forEach((b,i) => {
+    if (i === qData.ans) b.classList.add('correct');
+    else if (i === idx && idx !== qData.ans) b.classList.add('wrong');
+    else b.classList.add('reveal');
+  });
+  if (idx === qData.ans) quizScore++;
+  setTimeout(() => { quizIdx++; showQuestion(); }, 900);
+};
+function showQuizResult() {
+  document.getElementById('quizContent').classList.add('hidden');
+  document.getElementById('quizProg').style.width = '100%';
+  const passed = quizScore >= 4;
+  document.getElementById('quizResultIcon').textContent = passed ? '⚡' : '❌';
+  document.getElementById('quizResultTxt').textContent = passed ? `PARKOUR PLUS AÇILDI! (${quizScore}/5)` : `Başarısız... (${quizScore}/5)`;
+  document.getElementById('quizResultSub').textContent = passed ? 'Tebrikler! Özel yetenekler aktif.' : 'En az 4 doğru gerekli. Tekrar dene!';
+  document.getElementById('quizResultSub').style.color = passed ? '#7fff00' : '#ff6699';
+  document.getElementById('quizFeatures').classList.toggle('hidden', !passed);
+  if (passed) { saveData.ppUnlocked = true; ppActive = true; save(); updatePPUI(); }
+  document.getElementById('quizResult').classList.remove('hidden');
+}
+document.getElementById('btnParkourPlus').onclick = () => {
+  if (saveData.ppUnlocked) {
+    ppActive = !ppActive;
+    updatePPUI();
+    notif(ppActive ? '⚡ Parkour Plus AKTİF' : '⚡ Parkour Plus KAPANDI');
+  } else { startQuiz(); }
+};
+document.getElementById('quizClose').onclick = () => {
+  document.getElementById('quizScreen').classList.add('hidden');
 };
 
 // ══════════════════════════════════════════════════

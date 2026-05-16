@@ -3,10 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <title>PARKOUR 3D</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- BLOCKER / MENU -->
 <div id="blocker">
   <div id="instructions">
     <h1>PARKOUR 3D</h1>
@@ -15,12 +16,14 @@
       <span><kbd>W A S D</kbd> Hareket</span>
       <span><kbd>SPACE</kbd> Zıpla / Çift Zıpla</span>
       <span><kbd>SHIFT</kbd> Sprint</span>
-      <span><kbd>R</kbd> Yeniden Başla</span>
+      <span><kbd>R</kbd> Yeniden Başla (her zaman)</span>
     </div>
     <button id="btnStart">▶ TIKLA VE OYNA</button>
+    <button id="btnParkourPlus" class="gbtn-plus">⚡ PARKOUR PLUS<span id="ppStatus">KİLİTLİ</span></button>
   </div>
 </div>
 
+<!-- HUD -->
 <div id="hud">
   <div id="crosshair">+</div>
   <div id="hud-top">
@@ -34,31 +37,65 @@
   <div id="hud-bot">
     <div class="hp-wrap"><span>HP</span><div class="hp-bg"><div class="hp-fill" id="hHp"></div></div><b id="hHpNum">100</b></div>
     <div id="abilRow">
-      <div class="abil" id="aJump"><div>↑↑</div><small>ÇİFT</small></div>
-      <div class="abil" id="aDash"><div>»</div><small>DASH</small></div>
+      <div class="abil" id="aJump"><div>↑↑</div><small>ZIPL</small></div>
+      <div class="abil pp-abil hidden" id="aWall"><div>⟳</div><small>DUVAR</small></div>
+      <div class="pp-badge hidden" id="ppBadge">⚡ PLUS</div>
     </div>
   </div>
 </div>
 
 <div id="notifArea"></div>
 
+<!-- Death Screen -->
 <div id="deathScreen" class="overlay hidden">
   <div class="obox">
     <div style="font-size:3rem">💀</div>
     <h2>ÖLDÜN!</h2>
     <p id="dMsg">Düştün!</p>
-    <button class="gbtn" id="bRespawn">YENİDEN DEN (R)</button>
+    <button class="gbtn" id="bRespawn">♻ YENİDEN DEN</button>
     <button class="gbtn sec" id="bMenu">MENÜ</button>
+    <p style="font-size:.65rem;color:rgba(255,255,255,.3);margin-top:8px">veya klavyede <kbd style="font-size:.6rem">R</kbd></p>
   </div>
 </div>
 
+<!-- Win Screen -->
 <div id="winScreen" class="overlay hidden">
   <div class="obox win">
     <div style="font-size:3rem">🏆</div>
     <h2>TAMAMLANDI!</h2>
     <div id="wStats"></div>
     <button class="gbtn" id="bNext">SONRAKİ SEVİYE →</button>
+    <button class="gbtn sec" id="bReplay">TEKRAR</button>
     <button class="gbtn sec" id="bMenuW">MENÜ</button>
+  </div>
+</div>
+
+<!-- PARKOUR PLUS QUIZ SCREEN -->
+<div id="quizScreen" class="overlay hidden">
+  <div class="obox quiz-box">
+    <div class="quiz-header">
+      <span class="quiz-icon">⚡</span>
+      <h2>PARKOUR PLUS TESTİ</h2>
+      <p>5 sorudan 4'ünü doğru cevapla!</p>
+    </div>
+    <div class="quiz-progress-wrap">
+      <div class="quiz-progress" id="quizProg"></div>
+    </div>
+    <div id="quizContent">
+      <!-- Filled by JS -->
+    </div>
+    <div id="quizResult" class="hidden">
+      <div id="quizResultIcon" style="font-size:3rem"></div>
+      <h3 id="quizResultTxt"></h3>
+      <p id="quizResultSub"></p>
+      <div id="quizFeatures" class="quiz-features hidden">
+        <div class="qf">↑↑↑ Üçlü Zıplama</div>
+        <div class="qf">⟳ Duvar Koşusu (2sn)</div>
+        <div class="qf">⚡ %50 Hız Artışı</div>
+        <div class="qf">🌈 Gökkuşağı Trail</div>
+      </div>
+      <button class="gbtn" id="quizClose">TAMAM</button>
+    </div>
   </div>
 </div>
 
