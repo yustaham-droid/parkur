@@ -130,3 +130,17 @@ kbd{background:rgba(0,245,255,.12);border:1px solid rgba(0,245,255,.3);border-ra
 #boxResultStatus{font-size:.8rem;font-family:'Rajdhani',sans-serif;margin-top:6px}
 .hidden{display:none!important}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,215,0,.25);border-radius:2px}
+
+/* MEGA DETAILS UI */
+#damageOverlay{position:fixed;inset:0;background:radial-gradient(circle,transparent 40%,rgba(255,0,0,0.6) 100%);pointer-events:none;z-index:40;opacity:0;transition:opacity .15s}
+#damageOverlay.active{opacity:1;animation:dmgFlash .3s}
+@keyframes dmgFlash{0%{opacity:0}50%{opacity:1;background:radial-gradient(circle,rgba(255,0,0,.2) 20%,rgba(255,0,0,.8) 100%)}100%{opacity:0}}
+#comboText{position:fixed;top:30%;right:15%;transform:translateY(-50%);font-family:'Orbitron',monospace;font-size:3rem;color:#ffaa00;text-shadow:0 0 10px #ff3300,0 0 20px #ff3300;opacity:0;pointer-events:none;z-index:45;font-weight:900;text-align:right}
+#comboText.show{animation:comboPop .5s cubic-bezier(0.175,0.885,0.32,1.275) forwards}
+@keyframes comboPop{0%{opacity:0;transform:scale(.5) rotate(-10deg) translateY(-50%)}50%{opacity:1;transform:scale(1.2) rotate(5deg) translateY(-50%)}100%{opacity:1;transform:scale(1) rotate(0deg) translateY(-50%)}}
+
+.pet-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:12px;text-align:center;cursor:pointer;transition:all .2s;position:relative}
+.pet-card:hover{transform:translateY(-3px);border-color:rgba(127,255,0,.4)}
+.pet-card.equipped{border-color:#ffd700;background:rgba(255,215,0,.08)}
+.pet-icon{font-size:3rem;display:block;margin-bottom:5px;filter:drop-shadow(0 0 8px rgba(255,255,255,.2))}
+.pet-name{font-size:.7rem;letter-spacing:.1em;margin-bottom:4px;font-family:'Orbitron',monospace}

@@ -12,7 +12,7 @@
   <div id="menuWrap">
     <canvas id="menuChar"></canvas>
     <div id="instructions">
-      <h1>PARKOUR <span>3D</span></h1>
+      <h1>PARKOUR <span>3D</span> <small style="font-size:1rem;color:#ffd700;vertical-align:top">MEGA</small></h1>
       <p>ROBLOX STYLE FIRST-PERSON</p>
       <div class="coin-bar"><span>🪙</span><b id="mCoins">0</b></div>
       <div class="menu-btns">
@@ -27,6 +27,9 @@
     </div>
   </div>
 </div>
+
+<div id="damageOverlay"></div>
+<div id="comboText"></div>
 
 <!-- HUD -->
 <div id="hud">
@@ -121,9 +124,10 @@
       <button class="close-btn" id="closeMarket">✕</button>
     </div>
     <div class="mkt-tabs">
-      <button class="mtab active" data-tab="chars">🧍 KARAKTERler</button>
+      <button class="mtab active" data-tab="chars">🧍 KARAKTERLER</button>
+      <button class="mtab" data-tab="pets">🐾 EVCİL HAYVAN</button>
       <button class="mtab" data-tab="boxes">📦 KUTULAR</button>
-      <button class="mtab" data-tab="inv">🎒 ENVANTERİM</button>
+      <button class="mtab" data-tab="inv">🎒 ENVANTER</button>
     </div>
     <div id="mktContent"></div>
   </div>
