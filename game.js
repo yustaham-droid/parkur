@@ -241,7 +241,7 @@ function buildLv0(){
   const steps=[[0,0,10,3,1,3],[3,0,16,3,1,3],[-2,1,22,3,1,3],[1,2,28,3,1,3],[4,2,34,3,1,3],[0,3,40,3,1,3],[-3,3,46,3,1,3],[0,4,52,4,1,4]];
   steps.forEach(([x,y,z,w,h,d])=>addPlat(x,y,z,w,h,d));
   [[0,2,10],[3,2,16],[-2,3,22],[1,4,28]].forEach(([x,y,z])=>addCoin3D(x,y,z));
-  addPlat(0,5,62,4,1,4,0xff4400,{moving:true,ex:6,ez:62,mspd:1.5});
+  addPlat(0,5,62,4,1,4,0xff4400,{moving:true,ex:6,ez:62,mspd:0.85}); // Slowed down from 1.5 to 0.85
   addCP(0,5,74);addPlat(0,5,76,8,1,8,0x44ff44);
   for(let i=0;i<6;i++)addPlat(i*3-4,5+i,88+i*4,3,1,4,0xff8800);
   addPlat(0,11,116,6,1,6,0xff0088);
@@ -255,8 +255,8 @@ function buildLv1(){
   addPlat(0,0,0,10,1,10,0x2255aa);
   const path=[[0,0,14,4,1,4],[6,2,22,4,1,4],[-4,4,30,4,1,4],[2,6,40,4,1,4],[8,8,50,3,1,3],[-6,10,58,3,1,3],[0,12,68,5,1,5]];
   path.forEach(([x,y,z,w,h,d])=>addPlat(x,y,z,w,h,d));path.forEach(([x,y,z])=>addCoin3D(x,y+2,z));
-  addPlat(-4,14,80,3,1,3,0xff6600,{moving:true,ex:4,ez:80,mspd:1.8});
-  addPlat(0,16,92,3,1,3,0xff6600,{moving:true,ey:20,ez:92,mspd:1.2});
+  addPlat(-4,14,80,3,1,3,0xff6600,{moving:true,ex:4,ez:80,mspd:0.9}); // Slowed down from 1.8 to 0.9
+  addPlat(0,16,92,3,1,3,0xff6600,{moving:true,ey:20,ez:92,mspd:0.7}); // Slowed down from 1.2 to 0.7
   addCP(0,20,104);addPlat(0,20,106,8,1,8,0x8800ff);
   [[-8,20,118],[0,22,126],[8,24,134],[-4,26,142],[0,28,150]].forEach(([x,y,z])=>{addPlat(x,y,z,3,1,3);addCoin3D(x,y+2,z);});
   addPlat(0,30,162,8,1,8,0x00ff88);addCP(0,30,162);
@@ -269,8 +269,8 @@ function buildLv2(){
   addPlat(0,-3,80,200,1,200,0xff2200,{type:'lava'});
   const isl=[[0,0,14,4,1,5],[6,0,22,3,1,4],[-5,0,30,4,1,4],[2,0,40,3,1,5],[-3,0,50,4,1,4],[5,0,60,3,1,3],[0,0,70,4,1,4],[0,0,82,5,1,5]];
   isl.forEach(([x,y,z,w,h,d])=>addPlat(x,y,z,w,h,d,0x996633));
-  addPlat(0,0,92,3,1,3,0xff6600,{moving:true,ex:8,ez:92,mspd:2});
-  addPlat(4,0,104,3,1,3,0xff6600,{moving:true,ex:-4,ez:104,mspd:2.2});
+  addPlat(0,0,92,3,1,3,0xff6600,{moving:true,ex:8,ez:92,mspd:1.0}); // Slowed down from 2.0 to 1.0
+  addPlat(4,0,104,3,1,3,0xff6600,{moving:true,ex:-4,ez:104,mspd:1.1}); // Slowed down from 2.2 to 1.1
   addCP(0,0,116);addPlat(0,0,118,8,1,8,0x663300);
   for(let i=0;i<10;i++){addPlat(i%2===0?-4:4,0,130+i*7,2,1,3,0x884422);addCoin3D(i%2===0?-4:4,2,130+i*7);}
   addPlat(0,0,202,8,1,8,0x996633);addCP(0,0,202);
@@ -281,8 +281,8 @@ function buildLv2(){
 function buildLv3(){
   addPlat(0,0,0,10,1,10,0x88bbff);
   [[4,1,12,3,1,4],[-4,2,22,3,1,4],[6,3,32,3,1,4],[-6,4,42,3,1,4],[4,5,52,3,1,4],[0,6,62,5,1,5]].forEach(([px,py,pz,w,h,d])=>{addPlat(px,py,pz,w,h,d,0x88ccff);addCoin3D(px,py+2,pz);});
-  addPlat(0,7,76,3,1,3,0xaaeeff,{moving:true,ex:6,ey:7,ez:76,mspd:1.4});
-  addPlat(3,9,88,3,1,3,0xaaeeff,{moving:true,ex:-3,ey:9,ez:88,mspd:1.6});
+  addPlat(0,7,76,3,1,3,0xaaeeff,{moving:true,ex:6,ey:7,ez:76,mspd:0.75}); // Slowed down from 1.4 to 0.75
+  addPlat(3,9,88,3,1,3,0xaaeeff,{moving:true,ex:-3,ey:9,ez:88,mspd:0.85}); // Slowed down from 1.6 to 0.85
   addCP(0,10,100);addPlat(0,10,102,8,1,8,0x6699ff);
   for(let i=0;i<6;i++)addPlat((i%2===0?-4:4)+i*.5,10+i,114+i*7,1.5,1,4,0xaaddff);
   addPlat(0,16,158,8,1,8,0x4466ff);addCP(0,16,158);
@@ -296,8 +296,8 @@ function buildPPLevel(){
   addPlat(0,0,0,8,1,8,0x4400aa);
   const path=[[0,0,12,2.5,1,3],[4,1,20,2.5,1,3],[-3,2,28,2,1,3],[2,3,36,2,1,3],[0,4,44,2.5,1,2.5]];
   path.forEach(([x,y,z,w,h,d])=>addPlat(x,y,z,w,h,d));
-  addPlat(-4,5,52,2,1,3,0xff6600,{moving:true,ex:4,ez:52,mspd:2.2});
-  addPlat(0,6,62,2,1,3,0xff6600,{moving:true,ey:9,ez:62,mspd:1.8});
+  addPlat(-4,5,52,2,1,3,0xff6600,{moving:true,ex:4,ez:52,mspd:1.2}); // Slowed down from 2.2 to 1.2
+  addPlat(0,6,62,2,1,3,0xff6600,{moving:true,ey:9,ez:62,mspd:1.0}); // Slowed down from 1.8 to 1.0
   addPlat(0,9,72,2,1,2,0xff0088);
   addPlat(4,10,80,2,1,2,0xff0088);
   addPlat(-2,11,88,2,1,2,0xff0088);
@@ -404,10 +404,18 @@ function physics(dt){
   if(!wasGnd&&player.onGround){sfxLand();landT=1;}
   // X
   player.pos.x+=player.vel.x*dt;
-  for(const p of objects){if(!ovlp(pAABB(),oAABB(p)))continue;const pb=oAABB(p);player.pos.x=player.vel.x>0?pb.minX-PW-.01:pb.maxX+PW+.01;player.vel.x=0;}
+  for(const p of objects){
+    if(p === player.standOn) continue; // Skip lateral collision with the platform we are currently standing on!
+    if(!ovlp(pAABB(),oAABB(p)))continue;
+    const pb=oAABB(p);player.pos.x=player.vel.x>0?pb.minX-PW-.01:pb.maxX+PW+.01;player.vel.x=0;
+  }
   // Z
   player.pos.z+=player.vel.z*dt;
-  for(const p of objects){if(!ovlp(pAABB(),oAABB(p)))continue;const pb=oAABB(p);player.pos.z=player.vel.z>0?pb.minZ-PD-.01:pb.maxZ+PD+.01;player.vel.z=0;}
+  for(const p of objects){
+    if(p === player.standOn) continue; // Skip lateral collision with the platform we are currently standing on!
+    if(!ovlp(pAABB(),oAABB(p)))continue;
+    const pb=oAABB(p);player.pos.z=player.vel.z>0?pb.minZ-PD-.01:pb.maxZ+PD+.01;player.vel.z=0;
+  }
 
   // Fall
   if(player.pos.y<-15&&!player.dead){player.dead=true;sfxDie();setTimeout(()=>showDeath('Düştün! 😱'),500);return;}
