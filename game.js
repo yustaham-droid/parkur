@@ -31,9 +31,23 @@ function clearJP(){Object.keys(jp).forEach(k=>delete jp[k]);}
 
 // Pointer lock
 let locked=false,yaw=0,pitch=0;
-document.addEventListener('pointerlockchange',()=>{locked=document.pointerLockElement===canvas;document.getElementById('blocker').classList.toggle('hidden',locked);});
+function isMenuOpen(){
+  return !document.getElementById('blocker').classList.contains('hidden') ||
+         !document.getElementById('marketScreen').classList.contains('hidden') ||
+         !document.getElementById('ppChallenge').classList.contains('hidden') ||
+         !document.getElementById('winScreen').classList.contains('hidden') ||
+         !document.getElementById('deathScreen').classList.contains('hidden') ||
+         !document.getElementById('ppWinScreen').classList.contains('hidden') ||
+         !document.getElementById('boxOpenScreen').classList.contains('hidden');
+}
+document.addEventListener('pointerlockchange',()=>{
+  locked=document.pointerLockElement===canvas;
+  if(!locked && !isMenuOpen()) {
+    document.getElementById('blocker').classList.remove('hidden');
+  }
+});
 document.addEventListener('mousemove',e=>{if(!locked)return;yaw-=e.movementX*.0022;pitch-=e.movementY*.0022;pitch=Math.max(-Math.PI/2+.05,Math.min(Math.PI/2-.05,pitch));});
-canvas.addEventListener('click',()=>{if(!locked)canvas.requestPointerLock();});
+canvas.addEventListener('click',()=>{if(!locked && !isMenuOpen())canvas.requestPointerLock();});
 
 // Utils
 const lerp=(a,b,t)=>a+(b-a)*t;
@@ -302,6 +316,8 @@ let thirdPerson=false,charModel=null,isPPChallenge=false,ppTimer=0;
 let currentLevel=0,gameStartTime=Date.now();
 
 function pAABB(){return{minX:player.pos.x-PW,maxX:player.pos.x+PW,minY:player.pos.y,maxY:player.pos.y+PH,minZ:player.pos.z-PD,maxZ:player.pos.z+PD};}
+// A wider box for making landing on platforms much easier and more forgiving!
+function pAABB_wide(){return{minX:player.pos.x-PW-0.12,maxX:player.pos.x+PW+0.12,minY:player.pos.y,maxY:player.pos.y+PH,minZ:player.pos.z-PD-0.12,maxZ:player.pos.z+PD+0.12};}
 function oAABB(p){return{minX:p.x-p.w/2,maxX:p.x+p.w/2,minY:p.y-p.h/2,maxY:p.y+p.h/2,minZ:p.z-p.d/2,maxZ:p.z+p.d/2};}
 function ovlp(a,b){return a.maxX>b.minX&&a.minX<b.maxX&&a.maxY>b.minY&&a.minY<b.maxY&&a.maxZ>b.minZ&&a.minZ<b.maxZ;}
 
@@ -312,7 +328,7 @@ function updateChar3D(){
   const spd=Math.sqrt(player.vel.x**2+player.vel.z**2);
   // Position
   charModel.position.set(player.pos.x,player.pos.y,player.pos.z);
-  charModel.rotation.y=yaw+Math.PI; // face forward
+  charModel.rotation.y=yaw; // face forward (corrected so face points away from camera in 3rd person)
   charModel.visible=thirdPerson;
   animChar(charModel,player.vel.x,player.vel.z,.016,player.onGround,!player.onGround);
 }
@@ -335,8 +351,22 @@ function physics(dt){
   if(L)mv.addScaledVector(rgt,-1);if(R)mv.addScaledVector(rgt,1);
   if(mv.lengthSq()>0)mv.normalize();
 
-  if(player.onGround){player.vel.x=mv.x*spd*.9+player.vel.x*.1;player.vel.z=mv.z*spd*.9+player.vel.z*.1;}
-  else{player.vel.x+=mv.x*spd*dt*4;player.vel.z+=mv.z*spd*dt*4;const h=Math.sqrt(player.vel.x**2+player.vel.z**2);if(h>spd*1.6){player.vel.x*=spd*1.6/h;player.vel.z*=spd*1.6/h;}}
+  if(player.onGround){
+    if(mv.lengthSq() > 0) {
+      player.vel.x=mv.x*spd*.9+player.vel.x*.1;
+      player.vel.z=mv.z*spd*.9+player.vel.z*.1;
+    } else {
+      // Direct, fast braking on ground to prevent sliding off platforms
+      player.vel.x *= 0.65;
+      player.vel.z *= 0.65;
+    }
+  }
+  else{
+    // High air control (multiplier 12 instead of 4) for extremely easy steering!
+    player.vel.x+=mv.x*spd*dt*12;player.vel.z+=mv.z*spd*dt*12;
+    const h=Math.sqrt(player.vel.x**2+player.vel.z**2);
+    if(h>spd*1.6){player.vel.x*=spd*1.6/h;player.vel.z*=spd*1.6/h;}
+  }
 
   if(jp['Space']&&player.jumpsLeft>0){const first=player.jumpsLeft===maxJ;player.vel.y=JMPV*(first?1:.85);player.onGround=false;player.jumpsLeft--;sfxJump();if(player.jumpsLeft===0&&maxJ===3)notif('⚡ ÜÇLÜ ZIPL!');else if(player.jumpsLeft===0)notif('↑↑ ÇİFT ZIPL!');}
 
@@ -360,10 +390,17 @@ function physics(dt){
   const maxJ2=pp?3:2;
   // Y
   player.pos.y+=player.vel.y*dt;
-  for(const p of objects){if(!ovlp(pAABB(),oAABB(p)))continue;const pb=oAABB(p);
-    if(player.vel.y<=0&&player.pos.y>=pb.maxY-.28){player.pos.y=pb.maxY;player.vel.y=0;player.onGround=true;player.jumpsLeft=maxJ2;player.wallRunT=2;player.standOn=p;
+  for(const p of objects){
+    // Use wider bounds to snap onto platforms and make landing very forgiving
+    if(!ovlp(pAABB_wide(),oAABB(p)))continue;
+    const pb=oAABB(p);
+    if(player.vel.y<=0&&player.pos.y>=pb.maxY-.32){
+      player.pos.y=pb.maxY;player.vel.y=0;player.onGround=true;player.jumpsLeft=maxJ2;player.wallRunT=2;player.standOn=p;
       if(p.type==='bounce'){player.vel.y=JMPV*1.45;player.onGround=false;sfxJump();notif('🟢 BOUNCE!');}
-    }else if(player.vel.y>0&&player.pos.y+PH<=pb.minY+.35){player.pos.y=pb.minY-PH;player.vel.y=0;}}
+    }else if(player.vel.y>0&&player.pos.y+PH<=pb.minY+.35){
+      player.pos.y=pb.minY-PH;player.vel.y=0;
+    }
+  }
   if(!wasGnd&&player.onGround){sfxLand();landT=1;}
   // X
   player.pos.x+=player.vel.x*dt;
@@ -491,10 +528,17 @@ function updateHUD(){
 function openMarket(){
   if(document.exitPointerLock)document.exitPointerLock();
   document.getElementById('marketScreen').classList.remove('hidden');
+  document.getElementById('blocker').classList.add('hidden'); // Hide main menu when market is open
   document.getElementById('mktCoins').textContent=SD.coins;
   renderMarketTab('chars');
 }
-function closeMarket(){document.getElementById('marketScreen').classList.add('hidden');}
+function closeMarket(){
+  document.getElementById('marketScreen').classList.add('hidden');
+  // Return to main menu if not playing
+  if(player.dead || player.pos.y < -10 || (player.pos.x===0 && player.pos.z===0 && player.pos.y<=4.5)) {
+    document.getElementById('blocker').classList.remove('hidden');
+  }
+}
 
 document.querySelectorAll('.mtab').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.mtab').forEach(b=>b.classList.remove('active'));btn.classList.add('active');renderMarketTab(btn.dataset.tab);});});
 
@@ -561,19 +605,53 @@ window.openBox=function(type){
 document.getElementById('bBoxClose').onclick=()=>{document.getElementById('boxOpenScreen').classList.add('hidden');openMarket();};
 
 // ─── EVENTS ──────────────────────────────────────────
-document.getElementById('btnPlay').onclick=()=>{loadLevel(0);canvas.requestPointerLock();};
+document.getElementById('btnPlay').onclick=()=>{
+  document.getElementById('blocker').classList.add('hidden');
+  locked = true;
+  loadLevel(0);
+  canvas.requestPointerLock();
+};
 document.getElementById('btnMarket').onclick=openMarket;
 document.getElementById('hudMarket').onclick=()=>{if(locked&&document.exitPointerLock)document.exitPointerLock();openMarket();};
 document.getElementById('closeMarket').onclick=closeMarket;
-document.getElementById('btnPP').onclick=()=>{if(SD.ppUnlocked)notif('⚡ PP zaten aktif! VIP King giy →');else document.getElementById('ppChallenge').classList.remove('hidden');};
-document.getElementById('bStartPP').onclick=loadPPChallenge;
-document.getElementById('bCancelPP').onclick=()=>document.getElementById('ppChallenge').classList.add('hidden');
-document.getElementById('bPPWinOK').onclick=()=>{document.getElementById('ppWinScreen').classList.add('hidden');document.getElementById('blocker').classList.remove('hidden');if(window.refreshMenuChar)refreshMenuChar();};
+document.getElementById('btnPP').onclick=()=>{
+  document.getElementById('ppChallenge').classList.remove('hidden');
+  document.getElementById('blocker').classList.add('hidden');
+};
+document.getElementById('bStartPP').onclick=()=>{
+  document.getElementById('ppChallenge').classList.add('hidden');
+  loadPPChallenge();
+};
+document.getElementById('bCancelPP').onclick=()=>{
+  document.getElementById('ppChallenge').classList.add('hidden');
+  document.getElementById('blocker').classList.remove('hidden');
+};
+document.getElementById('bPPWinOK').onclick=()=>{
+  document.getElementById('ppWinScreen').classList.add('hidden');
+  document.getElementById('blocker').classList.remove('hidden');
+  if(window.refreshMenuChar)refreshMenuChar();
+};
 document.getElementById('bRespawn').onclick=()=>{respawn();canvas.requestPointerLock();};
-document.getElementById('bMenu').onclick=()=>{document.getElementById('deathScreen').classList.add('hidden');document.getElementById('blocker').classList.remove('hidden');if(document.exitPointerLock)document.exitPointerLock();};
-document.getElementById('bNext').onclick=()=>{document.getElementById('winScreen').classList.add('hidden');loadLevel((currentLevel+1)%4);canvas.requestPointerLock();};
-document.getElementById('bReplay').onclick=()=>{document.getElementById('winScreen').classList.add('hidden');loadLevel(currentLevel);canvas.requestPointerLock();};
-document.getElementById('bMenuW').onclick=()=>{document.getElementById('winScreen').classList.add('hidden');document.getElementById('blocker').classList.remove('hidden');if(document.exitPointerLock)document.exitPointerLock();};
+document.getElementById('bMenu').onclick=()=>{
+  document.getElementById('deathScreen').classList.add('hidden');
+  document.getElementById('blocker').classList.remove('hidden');
+  if(document.exitPointerLock)document.exitPointerLock();
+};
+document.getElementById('bNext').onclick=()=>{
+  document.getElementById('winScreen').classList.add('hidden');
+  loadLevel((currentLevel+1)%4);
+  canvas.requestPointerLock();
+};
+document.getElementById('bReplay').onclick=()=>{
+  document.getElementById('winScreen').classList.add('hidden');
+  loadLevel(currentLevel);
+  canvas.requestPointerLock();
+};
+document.getElementById('bMenuW').onclick=()=>{
+  document.getElementById('winScreen').classList.add('hidden');
+  document.getElementById('blocker').classList.remove('hidden');
+  if(document.exitPointerLock)document.exitPointerLock();
+};
 document.getElementById('camBadge').onclick=toggleCamera;
 // PP status on load
 if(SD.ppUnlocked){document.getElementById('btnPP').classList.add('active');document.getElementById('btnPP').textContent='⚡ PARKOUR PLUS ✓';}
@@ -591,7 +669,7 @@ function animate(ts){
   // Goal
   if(goal){goal.mesh.rotation.z+=dt*1.5;if(goal.mesh.children[0])goal.mesh.children[0].rotation.x+=dt*2;goal.mesh.scale.setScalar(1+Math.sin(ts*.003)*.08);}
   // Physics + char
-  if(locked&&!player.dead){physics(dt);}
+  if(!isMenuOpen()&&!player.dead){physics(dt);}
   updateChar3D();
   updateHUD();clearJP();
   renderer.render(scene,camera);
