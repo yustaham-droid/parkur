@@ -23,6 +23,30 @@ sun.shadow.camera.right=sun.shadow.camera.top=100;
 scene.add(sun);
 scene.add(new THREE.HemisphereLight(0x87CEEB,0x447744,0.3));
 
+// Premium floating neons/embers particles system
+let particles;
+function setupParticles(){
+  const count=180;
+  const geo=new THREE.BufferGeometry();
+  const pos=new Float32Array(count*3);
+  for(let i=0;i<count*3;i+=3){
+    pos[i]=(Math.random()-0.5)*180;
+    pos[i+1]=Math.random()*90-15;
+    pos[i+2]=(Math.random()-0.5)*260;
+  }
+  geo.setAttribute('position',new THREE.BufferAttribute(pos,3));
+  const mat=new THREE.PointsMaterial({
+    color:0x00f5ff,
+    size:0.38,
+    transparent:true,
+    opacity:0.8,
+    blending:THREE.AdditiveBlending
+  });
+  particles=new THREE.Points(geo,mat);
+  scene.add(particles);
+}
+setupParticles();
+
 // Input
 const keys={},jp={};
 window.addEventListener('keydown',e=>{if(!keys[e.code])jp[e.code]=true;keys[e.code]=true;if(e.code==='KeyR')respawn();if(e.code==='KeyV')toggleCamera();if(e.code==='Escape')openMarket();});
@@ -65,9 +89,9 @@ const sfxCash=()=>{beep(600,'sine',.2,.22);setTimeout(()=>beep(800,'sine',.18,.1
 
 // ─── SAVE DATA ───────────────────────────────────────
 const SK='pk3d_v4';
-let SD={coins:0,best:0,totalDeaths:0,ppUnlocked:false,owned:['default'],equipped:'default'};
+let SD={coins:0,best:0,totalDeaths:0,ppUnlocked:false,owned:['default'],equipped:'default',ownedPets:[],equippedPet:null};
 try{const s=JSON.parse(localStorage.getItem(SK));if(s)SD={...SD,...s};}catch(e){}
-function saveGame(){try{localStorage.setItem(SK,JSON.stringify(SD));}catch(e){}}
+function saveGame(){try{localStorage.setItem(SK,JSON.stringify(SD));}catch(e){}window.refreshCoinsUI && window.refreshCoinsUI();}
 
 // ─── SKINS ───────────────────────────────────────────
 const SKINS={
@@ -83,6 +107,14 @@ const SKINS={
     skin:0xcc77bb,body:0x1a1a33,legs:0x0e0e22,shoes:0xff1188,hat:0x7722aa,hatH:.35},
   vip:{name:'VIP King 👑',ico:'👑',rarity:'vip',price:0,boxable:false,ppOnly:true,
     skin:0xf5c18a,body:0x8b0000,legs:0x4a0066,shoes:0xffd700,hat:0xffd700,hatH:.55},
+};
+
+// ─── PETS DATABASE ────────────────────────────────────
+const PETS={
+  slime:{name:'Uzay Balçığı',ico:'👽',rarity:'common',price:100,desc:'+10% Hareket Hızı Bonusu!',color:0x7fff00},
+  cat:{name:'Altın Kedi',ico:'🐱',rarity:'rare',price:150,desc:'+15% Ekstra Altın Kazancı!',color:0xffd700},
+  dog:{name:'Siber Köpek',ico:'🐶',rarity:'epic',price:250,desc:'+12% Zıplama Yüksekliği!',color:0x00f5ff},
+  dragon:{name:'Neon Ejderha',ico:'🐉',rarity:'legendary',price:500,desc:'2 Kat Daha Uzun Duvar Koşusu!',color:0xff006e}
 };
 
 // ─── 3D CHARACTER BUILDER ─────────────────────────────
@@ -170,7 +202,16 @@ function setupMenuChar(){
 setupMenuChar();
 
 function notif(txt){const a=document.getElementById('notifArea');const el=document.createElement('div');el.className='notif';el.textContent=txt;a.appendChild(el);setTimeout(()=>el.remove(),2300);}
-function addCoins(n,label=''){SD.coins+=n;document.getElementById('mCoins').textContent=SD.coins;document.getElementById('hCoins').textContent=SD.coins;if(document.getElementById('mktCoins'))document.getElementById('mktCoins').textContent=SD.coins;if(n>0){notif(`+${n} 🪙${label?` ${label}`:''}`);}saveGame();}
+function addCoins(n,label=''){
+  let bonus=0;
+  if(SD.equippedPet==='cat'&&n>0){bonus=Math.round(n*.15);n+=bonus;}
+  SD.coins+=n;
+  document.getElementById('mCoins').textContent=SD.coins;
+  document.getElementById('hCoins').textContent=SD.coins;
+  if(document.getElementById('mktCoins'))document.getElementById('mktCoins').textContent=SD.coins;
+  if(n>0){notif(`+${n} 🪙${bonus>0?' (Kedi Bonusu!)':''}${label?` ${label}`:''}`);}
+  saveGame();
+}
 
 // ═══════════════════════════════════════════
 //  WORLD BUILDER + LEVELS
@@ -182,9 +223,18 @@ function facesMat(c,e=0){return new THREE.MeshPhongMaterial({color:c,emissive:e,
 function addPlat(x,y,z,w,h,d,col,opts={}){
   col=col??nxtCol();
   const geo=new THREE.BoxGeometry(w,h,d);
-  const mesh=new THREE.Mesh(geo,facesMat(col,opts.emissive||0));
+  const mesh=new THREE.Mesh(geo,facesMat(col,opts.type==='lava'?0xaa2200:0.05));
   mesh.position.set(x,y,z);mesh.castShadow=mesh.receiveShadow=true;scene.add(mesh);
-  mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo),new THREE.LineBasicMaterial({color:0x000000,transparent:true,opacity:.22})));
+  
+  // Tron style emissive glowing edges
+  const edgeMat=new THREE.LineBasicMaterial({
+    color: col,
+    transparent: true,
+    opacity: 0.75,
+    linewidth: 2
+  });
+  mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo),edgeMat));
+  
   const obj={mesh,x,y,z,w,h,d,type:opts.type||'solid',moving:opts.moving||false};
   if(opts.moving){const sp=new THREE.Vector3(x,y,z),ep=new THREE.Vector3(opts.ex??x,opts.ey??y,opts.ez??z);movingPlatforms.push({obj,sp,ep,t:0,dir:1,spd:opts.mspd||1.2});}
   platforms.push(obj);objects.push(obj);return obj;
@@ -323,14 +373,70 @@ function ovlp(a,b){return a.maxX>b.minX&&a.minX<b.maxX&&a.maxY>b.minY&&a.minY<b.
 
 function toggleCamera(){thirdPerson=!thirdPerson;document.getElementById('camBadge').textContent=thirdPerson?'📷 3P':'📷 1P';}
 
+let petModel=null;
+function buildPet3D(petId){
+  if(!petId)return null;
+  const p=PETS[petId];if(!p)return null;
+  const root=new THREE.Group();
+  const mat=new THREE.MeshPhongMaterial({color:p.color,emissive:p.color,emissiveIntensity:0.35,shininess:80});
+  const body=new THREE.Mesh(new THREE.BoxGeometry(.35,.35,.35),mat);
+  body.castShadow=body.receiveShadow=true;root.add(body);
+  
+  // Eyes
+  const eyeMat=new THREE.MeshBasicMaterial({color:0xffffff});
+  const pupilMat=new THREE.MeshBasicMaterial({color:0x000000});
+  const eyeL=new THREE.Mesh(new THREE.BoxGeometry(.08,.08,.02),eyeMat);eyeL.position.set(-.09,.06,-.18);
+  const pupilL=new THREE.Mesh(new THREE.BoxGeometry(.04,.04,.01),pupilMat);pupilL.position.set(-.09,.06,-.19);
+  root.add(eyeL);root.add(pupilL);
+  
+  const eyeR=new THREE.Mesh(new THREE.BoxGeometry(.08,.08,.02),eyeMat);eyeR.position.set(.09,.06,-.18);
+  const pupilR=new THREE.Mesh(new THREE.BoxGeometry(.04,.04,.01),pupilMat);pupilR.position.set(.09,.06,-.19);
+  root.add(eyeR);root.add(pupilR);
+  
+  // Cute Ears
+  const earL=new THREE.Mesh(new THREE.BoxGeometry(.07,.11,.07),mat);earL.position.set(-.12,.21,0);root.add(earL);
+  const earR=new THREE.Mesh(new THREE.BoxGeometry(.07,.11,.07),mat);earR.position.set(.12,.21,0);root.add(earR);
+  
+  // Neon dragon wings
+  if(petId==='dragon'){
+    const wingMat=new THREE.MeshPhongMaterial({color:0xff006e,emissive:0xff006e,emissiveIntensity:0.4,transparent:true,opacity:.85});
+    const wingL=new THREE.Mesh(new THREE.BoxGeometry(.18,.12,.02),wingMat);wingL.position.set(-.24,.05,.05);wingL.name='wingL';root.add(wingL);
+    const wingR=new THREE.Mesh(new THREE.BoxGeometry(.18,.12,.02),wingMat);wingR.position.set(.24,.05,.05);wingR.name='wingR';root.add(wingR);
+  }
+  return root;
+}
+
 function updateChar3D(){
   if(!charModel)return;
-  const spd=Math.sqrt(player.vel.x**2+player.vel.z**2);
   // Position
   charModel.position.set(player.pos.x,player.pos.y,player.pos.z);
-  charModel.rotation.y=yaw; // face forward (corrected so face points away from camera in 3rd person)
+  charModel.rotation.y=yaw;
   charModel.visible=thirdPerson;
   animChar(charModel,player.vel.x,player.vel.z,.016,player.onGround,!player.onGround);
+  
+  // Follow and bobbing for pet
+  if(!SD.equippedPet){
+    if(petModel){scene.remove(petModel);petModel=null;}
+  }else{
+    if(!petModel){petModel=buildPet3D(SD.equippedPet);if(petModel)scene.add(petModel);}
+    if(petModel){
+      petModel.visible=thirdPerson;
+      const angle=yaw+Math.PI*.75;
+      const targetX=player.pos.x+Math.sin(angle)*.95;
+      const targetZ=player.pos.z+Math.cos(angle)*.95;
+      const bob=Math.sin(Date.now()*.004)*.08+1.28;
+      const targetY=player.pos.y+bob;
+      petModel.position.x=lerp(petModel.position.x,targetX,.16);
+      petModel.position.y=lerp(petModel.position.y,targetY,.16);
+      petModel.position.z=lerp(petModel.position.z,targetZ,.16);
+      petModel.rotation.y=yaw;
+      if(SD.equippedPet==='dragon'){
+        const wL=petModel.getObjectByName('wingL'),wR=petModel.getObjectByName('wingR');
+        if(wL)wL.rotation.z=Math.sin(Date.now()*.015)*.35;
+        if(wR)wR.rotation.z=-Math.sin(Date.now()*.015)*.35;
+      }
+    }
+  }
 }
 
 function physics(dt){
@@ -341,7 +447,10 @@ function physics(dt){
   const F=keys['KeyW'],B=keys['KeyS'],L=keys['KeyA'],R=keys['KeyD'];
   const sprint=(keys['ShiftLeft']||keys['ShiftRight']);
   const pp=SD.ppUnlocked;
-  const spd=sprint?(pp?SPR*1.5:SPR):(pp?WLK*1.3:WLK);
+  
+  // Slime pet gives +10% movement speed bonus
+  const speedBonus = (SD.equippedPet === 'slime') ? 1.10 : 1.0;
+  const spd=sprint?(pp?SPR*1.5:SPR):(pp?WLK*1.3:WLK) * speedBonus;
   const maxJ=pp?3:2;
 
   const fwd=new THREE.Vector3(-Math.sin(yaw),0,-Math.cos(yaw));
@@ -368,13 +477,25 @@ function physics(dt){
     if(h>spd*1.6){player.vel.x*=spd*1.6/h;player.vel.z*=spd*1.6/h;}
   }
 
-  if(jp['Space']&&player.jumpsLeft>0){const first=player.jumpsLeft===maxJ;player.vel.y=JMPV*(first?1:.85);player.onGround=false;player.jumpsLeft--;sfxJump();if(player.jumpsLeft===0&&maxJ===3)notif('⚡ ÜÇLÜ ZIPL!');else if(player.jumpsLeft===0)notif('↑↑ ÇİFT ZIPL!');}
+  // Dog pet gives +12% jumping height bonus
+  const jumpBonus = (SD.equippedPet === 'dog') ? 1.12 : 1.0;
+  if(jp['Space']&&player.jumpsLeft>0){
+    const first=player.jumpsLeft===maxJ;
+    player.vel.y=JMPV*(first?1:.85)*jumpBonus;
+    player.onGround=false;
+    player.jumpsLeft--;
+    sfxJump();
+    if(player.jumpsLeft===0&&maxJ===3)notif('⚡ ÜÇLÜ ZIPL!');
+    else if(player.jumpsLeft===0)notif('↑↑ ÇİFT ZIPL!');
+  }
 
   // Wall run (PP)
+  // Dragon pet gives 2x longer wall run duration
+  const wrBonus = (SD.equippedPet === 'dragon') ? 2.0 : 1.0;
   if(pp&&!player.onGround&&F&&player.wallRunT>0){
     const wc=objects.some(p=>{const pb=oAABB(p);return(Math.abs(player.pos.x-pb.minX)<.7||Math.abs(player.pos.x-pb.maxX)<.7||Math.abs(player.pos.z-pb.minZ)<.7||Math.abs(player.pos.z-pb.maxZ)<.7)&&player.pos.y<pb.maxY&&player.pos.y+PH>pb.minY;});
     if(wc){player.wallRunActive=true;player.wallRunT-=dt;if(player.vel.y<-.5)player.vel.y=-.5;player.jumpsLeft=Math.max(player.jumpsLeft,1);}else player.wallRunActive=false;
-  }else{player.wallRunActive=false;if(player.onGround)player.wallRunT=2;}
+  }else{player.wallRunActive=false;if(player.onGround)player.wallRunT=2*wrBonus;}
 
   player.vel.y+=GRAV*dt;player.vel.y=Math.max(player.vel.y,MAXF);
 
@@ -568,19 +689,57 @@ function renderMarketTab(tab){
         ${action}</div>`;
     }).join('');
     c.innerHTML=`<div class="char-grid">${cards}</div>`;
+  }else if(tab==='pets'){
+    const cards=Object.entries(PETS).map(([id,p])=>{
+      const owned=(SD.ownedPets||[]).includes(id);const eq=SD.equippedPet===id;
+      let action='';
+      if(eq)action=`<button class="char-action equipped-btn" onclick="equipPet('${id}')">✓ SEÇİLİ</button>`;
+      else if(owned)action=`<button class="char-action equip-btn" onclick="equipPet('${id}')">KUŞAN</button>`;
+      else action=`<button class="char-action" onclick="buyPet('${id}')" ${SD.coins<p.price?'disabled style="opacity:.4"':''}>🪙 ${p.price}</button>`;
+      return `<div class="char-card${owned?' owned':''}${eq?' equipped':''}">
+        <span class="char-icon">${p.ico}</span>
+        <div class="char-name">${p.name}</div>
+        <span class="char-rarity r-${p.rarity}">${p.rarity.toUpperCase()}</span>
+        <div class="pet-desc" style="font-size:.65rem;color:rgba(255,255,255,.65);margin:4px 0;font-family:Rajdhani,sans-serif">${p.desc}</div>
+        ${action}</div>`;
+    }).join('');
+    c.innerHTML=`<div class="char-grid">${cards}</div>`;
   }else if(tab==='boxes'){
     c.innerHTML=`<div class="box-grid">
       <div class="box-card"><span class="box-ico">📦</span><div class="box-name">NORMAL KUTU</div><div class="box-desc">Common veya Rare karakter<br>60%/30%/10%</div><button class="char-action" onclick="openBox('normal')" ${SD.coins<100?'disabled style="opacity:.4"':''}>🪙 100</button></div>
       <div class="box-card"><span class="box-ico">🎁</span><div class="box-name">EPİK KUTU</div><div class="box-desc">Rare, Epic veya Legendary<br>40%/40%/20%</div><button class="char-action" onclick="openBox('epic')" ${SD.coins<300?'disabled style="opacity:.4"':''}>🪙 300</button></div>
     </div><p style="text-align:center;font-size:.7rem;color:rgba(255,255,255,.3);font-family:Rajdhani,sans-serif;margin-top:16px">VIP King sadece Parkour Plus görevinden kazanılır!</p>`;
   }else{
-    const invCards=SD.owned.map(id=>{const s=SKINS[id];if(!s)return'';const eq=SD.equipped===id;return`<div class="inv-card${eq?' equip-active':''}"><span style="font-size:2rem">${s.ico}</span><div style="font-size:.62rem;margin-top:4px">${s.name}</div><button class="char-action equip-btn" style="margin-top:6px" onclick="equipSkin('${id}')">${eq?'✓ SEÇİLİ':'GİY'}</button></div>`;}).join('');
-    c.innerHTML=`<div class="inv-grid">${invCards}</div><p style="text-align:center;font-size:.7rem;color:rgba(255,255,255,.3);font-family:Rajdhani,sans-serif;margin-top:14px">Toplam: ${SD.owned.length} karakter</p>`;
+    const invCards=SD.owned.map(id=>{const s=SKINS[id];if(!s)return'';const eq=SD.equipped===id;return `<div class="inv-card${eq?' equip-active':''}"><span style="font-size:2rem">${s.ico}</span><div style="font-size:.62rem;margin-top:4px">${s.name}</div><button class="char-action equip-btn" style="margin-top:6px" onclick="equipSkin('${id}')">${eq?'✓ SEÇİLİ':'GİY'}</button></div>`;}).join('');
+    const petCards=(SD.ownedPets||[]).map(id=>{const p=PETS[id];if(!p)return'';const eq=SD.equippedPet===id;return `<div class="inv-card${eq?' equip-active':''}"><span style="font-size:2rem">${p.ico}</span><div style="font-size:.62rem;margin-top:4px">${p.name}</div><button class="char-action equip-btn" style="margin-top:6px" onclick="equipPet('${id}')">${eq?'✓ SEÇİLİ':'KUŞAN'}</button></div>`;}).join('');
+    c.innerHTML=`<div class="inv-grid">${invCards}${petCards}</div><p style="text-align:center;font-size:.7rem;color:rgba(255,255,255,.3);font-family:Rajdhani,sans-serif;margin-top:14px">Toplam: ${SD.owned.length} Karakter · ${SD.ownedPets ? SD.ownedPets.length : 0} Evcil Hayvan</p>`;
   }
 }
 
 window.equipSkin=function(id){SD.equipped=id;saveGame();notif(`👗 ${SKINS[id].name} giyildi!`);if(window.refreshMenuChar)refreshMenuChar();if(charModel){scene.remove(charModel);charModel=buildChar3D(id);scene.add(charModel);}renderMarketTab(document.querySelector('.mtab.active').dataset.tab);};
 window.buySkin=function(id){const s=SKINS[id];if(SD.coins<s.price||SD.owned.includes(id))return;SD.coins-=s.price;SD.owned.push(id);document.getElementById('mktCoins').textContent=SD.coins;saveGame();sfxCash();notif(`✓ ${s.name} satın alındı!`);renderMarketTab('chars');};
+
+window.equipPet=function(id){
+  if(!SD.ownedPets)SD.ownedPets=[];
+  if(!SD.ownedPets.includes(id))return;
+  if(SD.equippedPet===id)SD.equippedPet=null;
+  else SD.equippedPet=id;
+  saveGame();
+  sfxCash();
+  notif(SD.equippedPet?`🐾 ${PETS[id].name} kuşanıldı!`:`🐾 Evcil hayvan kaldırıldı!`);
+  if(petModel){scene.remove(petModel);petModel=null;}
+  renderMarketTab(document.querySelector('.mtab.active').dataset.tab);
+};
+window.buyPet=function(id){
+  const p=PETS[id];if(!SD.ownedPets)SD.ownedPets=[];
+  if(SD.coins<p.price||SD.ownedPets.includes(id))return;
+  SD.coins-=p.price;SD.ownedPets.push(id);SD.equippedPet=id;
+  document.getElementById('mktCoins').textContent=SD.coins;
+  saveGame();
+  sfxCash();
+  notif(`✓ ${p.name} satın alındı!`);
+  renderMarketTab('pets');
+};
 
 // ─── LOOT BOXES ──────────────────────────────────────
 const BOX_POOLS={
@@ -678,6 +837,18 @@ function animate(ts){
   if(goal){goal.mesh.rotation.z+=dt*1.5;if(goal.mesh.children[0])goal.mesh.children[0].rotation.x+=dt*2;goal.mesh.scale.setScalar(1+Math.sin(ts*.003)*.08);}
   // Physics + char
   if(!isMenuOpen()&&!player.dead){physics(dt);}
+  
+  // Floating embers dynamic animation
+  if(particles){
+    const pArr=particles.geometry.attributes.position.array;
+    for(let i=1;i<pArr.length;i+=3){
+      pArr[i]-=dt*2.2;
+      if(pArr[i]<-15)pArr[i]=75;
+    }
+    particles.geometry.attributes.position.needsUpdate=true;
+    particles.rotation.y+=dt*0.04;
+  }
+  
   updateChar3D();
   updateHUD();clearJP();
   renderer.render(scene,camera);
